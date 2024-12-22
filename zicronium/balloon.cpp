@@ -1,36 +1,4 @@
 #define BALLOON_DEBUG
-
-/**
- *
- * BALLOON - C++ lightweight zlib implementation
- *
- * Program written by muffinshades
- *
- * Copyright (c) 2024 muffinshades
- *
- * You can do what ever you want with the software but you must
- * credit the author (muffinshades) with the original creation
- * of the software. Idk what else to put here lmao.
- *
- * Balloon Notes:
- *
- * This library is a implementation of the zlib or Inflate / Deflate
- * compression algorithm.
- *
- * Right now compression speeds are around 4-6mb/s and decompression
- * speeds are much faster. This isn't the worlds fastest implementation,
- * but its decently fast and lightweight. One day I will improve the LZ77
- * hash functions, but for now it's gonna stay at around 5mb/s.
- *
- * This program should be able to function with any other inflate / deflate
- * implementation apart from the whole compression level calculations being
- * different since I didn't entirley implement lazy and good matches into
- * the lz77 functions. I also didn't add a whole fast version for everything
- * since this is a relativley light weight library. One day I do plan on adding
- * these functions and making a even better implementation of zlib.
- *
- */
-
 #include "balloon.hpp"
 #include "ByteStream.hpp"
 #include "linked_map.hpp"
