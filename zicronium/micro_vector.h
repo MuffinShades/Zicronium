@@ -52,7 +52,13 @@ public:
         this->allocSz += this->chunkSz;
         void* t = malloc(this->allocSz);
         ZeroMem<byte>((byte*)t, this->allocSz);
-        memcpy(t, this->dat, this->allocSz);
+
+        if (this->dat) {
+            memcpy(t, this->dat, this->allocSz);
+            delete[] this->dat;
+        }
+
+        this->dat = t;
     }
 
     //
@@ -82,25 +88,29 @@ public:
         size_t copyLeft = bSz * scz;
 
         //just use memcpy if sizes are the same
-        if (sDif == 0) {
+        if (!sDif) {
             memcpy(b, this->dat, bSz * i_sz);
             return;
         }
 
-        //really scuffed version of memcpy if 2 values have different byte sizes        
+        //really scuffed version of memcpy if 2 values have different byte sizes      
+        // TODO: fix this cause it is so broken 
         for (
             void* src = (void*)this->dat,
-            *des = (void*)sDif > 0 ?
+            *des = (void*)(sDif > 0 ?
             b + sDif :
-            b
+            b)
             ;;
             ) {
             if (sDif > 0)
                 if (copyLeft-- > 0)
-                    des += sDif;
+                    des = (char*)des + sDif;
                 else
                     copyLeft = scz;
-            *des++ = *src++;
+            
+            //replaces: *des++ = *src++
+            VOID_BUF_SI(des, VOID_BUF_GET(src));
+            VOID_BUF_INC(src);
         }
     }
 };

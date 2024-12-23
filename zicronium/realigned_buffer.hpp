@@ -58,12 +58,10 @@ public:
 		const _Ty l = this->int_buf[subStart], r = this->int_buf[subStart+1];
 
 		//big endian
-		const u64 L = (
-			l & (
-				(1 << (lSz * 8)) - 1)
-			),
+		const u64 L = 
+			l & GMask(lSz * 8),
 			ts = tz * 8,
-			tm = (1 << ts) - 1;
+			tm = GMask(ts);
 
 		//middle copy
 		while (rSz > tz) {
@@ -85,11 +83,11 @@ public:
 					((tz - rSz) * 8)
 					)
 				&
-				((1 << Rbi) - 1)
-				);
+				GMask(Rbi)
+			);
 
 		if (lil)
-			return BeV; // TODO: create functino to reverse bytes in a value
+			return NumReverse(BeV); // TODO: create functino to reverse bytes in a value
 		else
 			return BeV;
 	}

@@ -173,6 +173,39 @@ template<typename _Ty> static _Ty ArrMax(_Ty* arr, size_t len) {
     return max;
 }
 
+static u64 NumReverse(u64 v, size_t bSz) {
+    u64 r = 0;
+
+    for (i32 i = 0; i < bSz; i++, r <<= 8, v >>= 8)
+        r |= (v & 0xff);
+
+    return r >> 8;
+}
+
 #ifndef max
 #define max(a, b) ((a) > (b)) ? (a) : (b)
 #endif
+
+#ifndef min
+#define min(a, b) ((a) < (b)) ? (a) : (b)
+#endif
+
+/**
+ *
+ * Void buffer macros to make void buffers 
+ * less annoying
+ * 
+ * VOID_BUF_ADD -> adds a value to the buffer
+ * VOID_BUF_GET -> gets current value in a buffer
+ * VOID_BUF_INC -> goes to next element in buffer
+ * VOID_BUF_SET -> set current value in a void buffer
+ * VOID_BUF_SI -> basically a void buf set followed by a void buf inc
+ * 
+ */
+#define VOID_BUF_ADD(buf, val) (buf) = (char*)(buf) + 1; \
+                                *((char*)(buf)) = (val)
+#define VOID_BUF_GET(buf) (*((char*)(buf)))
+#define VOID_BUF_INC(buf) (buf) = (char*)(buf) + 1
+#define VOID_BUF_SET(buf, val) *((char*)(buf)) = (val)
+#define VOID_BUF_SI(buf, val) *((char*)(buf)) = (val); \
+                               (buf) = (char*)(buf) + 1
