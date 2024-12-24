@@ -704,6 +704,7 @@ struct lzr {
     size_t encSz, winBits;
     huffman_node* distTree;
     u32* charCounts;
+    size_t charCountSz;
 };
 
 /**
@@ -761,11 +762,6 @@ _match longest_match(hash_node<_lz_win_ref>* firstMatch, lz_inst* ls, match_sett
     };
 }
 
-//shifts lz77 window
-void win_shift(lz_inst* ls) {
-    if (!ls) return;
-}
-
 /**
  *
  * Main lz77 function
@@ -817,7 +813,8 @@ lzr lz77_encode(byte* dat, size_t sz, size_t winBits) {
         .encSz = 0,
         .winBits = winBits,
         .distTree = nullptr,
-        .charCounts = nullptr
+        .charCounts = nullptr,
+        .charCountSz = lzAlphaSz
     };
 
     //construct important info and stuff
@@ -904,6 +901,7 @@ lzr lz77_encode(byte* dat, size_t sz, size_t winBits) {
 
             //add back ref val
             enc_dat.push(257 + lenIdx);
+            res.charCounts[257 + lenIdx]++;
 
             /*
             
@@ -927,12 +925,14 @@ lzr lz77_encode(byte* dat, size_t sz, size_t winBits) {
                 lenExtra & 0xffff
             );
         }
+        else {
 
-    def_match:
+        def_match:
 
-        //encode basic character
-        enc_dat.push(*ls.window);
-        res.charCounts[*ls.window]++;
+            //encode basic character
+            enc_dat.push(*ls.window);
+            res.charCounts[*ls.window]++;
+        }
 
         //window shifting
         _WIN_SHIFT(ls, curByte, winShift);
@@ -959,6 +959,33 @@ lzr lz77_encode(byte* dat, size_t sz, size_t winBits) {
     return res;
 }
 
+bool lzr_good(lzr* l) {
+    if (!l) return false;
+    if (!l->encDat || !l->charCounts || !l->distTree) return false;
+}
+
+void lzr_free(lzr* l) {
+    if (!l) return;
+
+    if (l->encDat)
+        _safe_free_a(l->encDat);
+
+    if (l->distTree)
+        TreeFree(l->distTree);
+
+    if (l->charCounts)
+        _safe_free_a(l->charCounts);
+}
+
+huffman_node* _lzr_stream_write(ByteStream* stream, lzr* l) {
+    if (!stream || !l) return nullptr;
+
+    //generate encode tree
+    huffman_node* enc_tree = GenCanonicalTreeFromCounts<l->charCountSz>((size_t*)l->charCounts);
+
+    return enc_tree;
+}
+
 /**
  *
  * DeflateBlock
@@ -973,7 +1000,7 @@ enum deflate_block_type {
     dfb_dynamic
 };
 
-void WriteDeflateBlockToStream(BitStream* stream, bin* block_data, const size_t winBits, const i32 level, bool finalBlock = false) {
+i32 WriteDeflateBlockToStream(BitStream* stream, bin* block_data, const size_t winBits, const i32 level, bool finalBlock = false) {
     deflate_block_type bType = level > 0 ? dfb_dynamic : dfb_static;
 
     //write some info
@@ -995,12 +1022,26 @@ void WriteDeflateBlockToStream(BitStream* stream, bin* block_data, const size_t 
 
         //max compressoin
     case 2: {
+        lzr lzDat = lz77_encode(block_data->dat, block_data->sz, winBits);
 
+        if (!lzr_good(&lzDat)) {
+            std::cout << "Failed to encode block! LZ77 Fail!" << std::endl;
+            lzr_free(&lzDat);
+            return 1;
+        }
+
+        //TODO: WRITE TREES
+
+        huffman_node* enc_Tree = _lzr_stream_write(stream, &lzDat);
+
+        lzr_free(&lzDat);
         break;
     }
     default:
-        return;
+        return 0;
     }
+
+    return 0;
 }
 
 /**
