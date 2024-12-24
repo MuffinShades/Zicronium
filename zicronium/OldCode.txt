@@ -1,0 +1,86 @@
+REALIGNED BUFFER INDEX OPERATOR:
+
+i32 tz = sizeof(_Ty),
+			sIdx = (idx * it_sz) / this->int_sz,
+			subStart = (idx * it_sz) % this->int_sz,
+			lSz = tz - subStart,
+			rSz = this->int_sz - lSz;
+
+		assert(subStart < this->int_sz - 1);
+
+		const _Ty l = this->int_buf[subStart], r = this->int_buf[subStart+1];
+
+		//big endian
+		u64 L = 
+			l & GMask(lSz * 8),
+			ts = tz * 8,
+			tm = GMask(ts);
+
+		//middle copy
+		while (rSz > tz) {
+			L <<= ts;
+			if (subStart < this->int_sz - 1)
+				L |= this->int_buf[subStart++];
+			rSz -= tz;
+		}
+
+		assert(subStart < this->int_sz);
+
+		//pre calculations for right side
+		const _Ty Rb = this->int_buf[subStart], Rbi = rSz * 8;
+
+		//combine left and right sides to get Big endian Value
+		const u64 BeV = (L << (Rbi * 8)) |
+			(
+				(Rb >>
+					((tz - rSz) * 8)
+					)
+				&
+				GMask(Rbi)
+			);
+
+
+MICRO VECTOR COPY TO BUFFER:
+
+//get value mask
+        /*u32 mask =
+            sizeof(_T) < i_sz ?
+                (1 << sizeof(_T)) - 1 :
+                this->mask;*/
+
+                //precalculations
+        //const size_t tz = sizeof(_T), scz = min(tz, i_sz);
+        //const i32 sDif = tz - i_sz;
+        //size_t copyLeft = bSz * scz;
+
+        //just use memcpy if sizes are the same or copying to buffer with a size of 1
+        /*if (!sDif || tz == 1) {
+            memcpy((void*)b, (void*)this->dat, min(this->sz, bSz) * i_sz);
+            return;
+        }*/
+
+        memcpy((void*)b, (void*)this->dat, min(this->sz, bSz) * i_sz);
+
+
+        //
+
+
+        //really scuffed version of memcpy if 2 values have different byte sizes      
+        // TODO: fix this cause it is so broken 
+        /*for (
+            void* src = (void*)this->dat,
+            *des = (void*)(sDif > 0 ?
+            b + sDif :
+            b)
+            ;;
+            ) {
+            if (sDif > 0)
+                if (copyLeft-- > 0)
+                    des = (char*)des + sDif;
+                else
+                    copyLeft = scz;
+            
+            //replaces: *des++ = *src++
+            VOID_BUF_SI(des, VOID_BUF_GET(src));
+            VOID_BUF_INC(src);
+        }*/

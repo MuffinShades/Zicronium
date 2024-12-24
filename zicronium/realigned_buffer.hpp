@@ -18,8 +18,9 @@
  */
 
 #include <bit>
+#include <cassert>
 
-template<class _Ty, size_t it_sz> class realigned_buffer {
+template<class _Ty, const size_t it_sz> class realigned_buffer {
 private:
 	_Ty* int_buf = nullptr;
 	size_t int_sz = 0;
@@ -43,52 +44,13 @@ public:
 		this->length = (size_t)(this->int_sz* sizeof(_Ty)) / it_sz;
 	}
 
-	u64& operator[] (size_t idx) {
+	u64 operator[] (size_t idx) {
 		this->computeLength();
-		static_assert(idx < this->length);
+		assert(idx < this->length);
 
-		i32 tz = sizeof(_Ty), 
-			sIdx = (idx * it_sz) / this->int_sz,
-			subStart = (idx * it_sz) % this->int_sz,
-			lSz = tz - subStart,
-			rSz = this->int_sz - lSz;
-
-		static_assert(subStart < this->int_sz - 1);
-
-		const _Ty l = this->int_buf[subStart], r = this->int_buf[subStart+1];
-
-		//big endian
-		const u64 L = 
-			l & GMask(lSz * 8),
-			ts = tz * 8,
-			tm = GMask(ts);
-
-		//middle copy
-		while (rSz > tz) {
-			L <<= ts;
-			if (subStart < this->int_sz - 1)
-				L |= this->int_buf[subStart++];
-			rSz -= tz;
-		}
-
-		static_assert(subStart < this->int_sz);
-
-		//pre calculations for right side
-		const _Ty Rb = this->int_buf[subStart], Rbi = rSz * 8;
-
-		//combine left and right sides to get Big endian Value
-		const u64 BeV = (L << (Rbi * 8)) |
-			(
-				(Rb >>
-					((tz - rSz) * 8)
-					)
-				&
-				GMask(Rbi)
-			);
-
-		if (lil)
-			return NumReverse(BeV); // TODO: create functino to reverse bytes in a value
-		else
-			return BeV;
+		const size_t s = idx * it_sz;
+		u64 BeV = 0;
+		memcpy((void*)&BeV, (void*)(((byte*)this->int_buf) + s), it_sz);
+		return BeV;
 	}
 };

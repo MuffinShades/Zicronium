@@ -14,6 +14,8 @@ i32 main() {
 
 	u32* testBuf = new u32[test_v.sz];
 
+	ZeroMem(testBuf, test_v.sz);
+
 	test_v.copyToBuffer(testBuf, test_v.sz);
 
 	std::cout << "Res: " << std::endl;
@@ -21,6 +23,16 @@ i32 main() {
 	for (size_t i = 0; i < test_v.sz; i++)
 		std::cout << testBuf[i] << std::endl;
 
+
+	std::cout << "Realign Test:" << std::endl;
+
+	realigned_buffer realigendBuf = realigned_buffer<u32, 3>(testBuf, test_v.sz);
+
+
+	std::cout << "Vals: " << std::endl;
+
+	for (size_t i = 0; i < test_v.sz; i++)
+		std::cout << realigendBuf[i] << std::endl;
 
 	return 0;
 }

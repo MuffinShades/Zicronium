@@ -144,6 +144,9 @@
     <ClInclude Include="msutil.hpp" />
     <ClInclude Include="realigned_buffer.hpp" />
   </ItemGroup>
+  <ItemGroup>
+    <Text Include="OldCode.txt" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
