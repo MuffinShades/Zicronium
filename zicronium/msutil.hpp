@@ -135,7 +135,7 @@ static bool _strCompare(std::string s1, std::string s2, bool lcmp = true, size_t
 }
 
 template<typename _Ty> static inline void _safe_free_a(_Ty* m) {
-    if (m == nullptr) return;
+    if (!m) return;
     else {
         try {
             delete[] m;
@@ -150,7 +150,7 @@ template<typename _Ty> static inline void _safe_free_a(_Ty* m) {
 }
 
 template<typename _Ty> static inline void _safe_free_b(_Ty* m) {
-    if (m == nullptr) return;
+    if (!m) return;
     else {
         try {
             delete m;
