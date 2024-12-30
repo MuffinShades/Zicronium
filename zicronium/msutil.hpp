@@ -209,3 +209,10 @@ static u64 NumReverse(u64 v, size_t bSz) {
 #define VOID_BUF_SET(buf, val) *((char*)(buf)) = (val)
 #define VOID_BUF_SI(buf, val) *((char*)(buf)) = (val); \
                                (buf) = (char*)(buf) + 1
+
+
+#define _foreach(type, cur, ptr, sz) \
+    for (\
+        type *cur=(ptr),*__end=((ptr)+((sz)*sizeof(type))); \
+        cur<__end;cur++\
+    )

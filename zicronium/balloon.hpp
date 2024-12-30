@@ -42,14 +42,14 @@
 //bit stream class for reading and doing stuff with bits
 class BitStream {
 public:
-	u32* bytes = nullptr;
+	byte* bytes = nullptr;
 	i32 pos = 0, rPos = 0;
 	i32 lBit = 0;
 	u32 cByte = 0;
 	u32 rBit = 0;
 	size_t sz, bsz, asz;
 	//bit stream for reading existing bytes / bits
-	MSFL_EXP BitStream(u32* bytes, size_t len);
+	MSFL_EXP BitStream(byte* bytes, size_t len);
 	//basic zero allocation bit stream for writing
 	MSFL_EXP BitStream(size_t len);
 	MSFL_EXP i32 readBit();
@@ -83,8 +83,8 @@ public:
 
 struct balloon_result {
 	byte* data;
-	u32 checksum;
 	size_t sz;
+	u32 checksum;
 	byte compressionMethod;
 };
 

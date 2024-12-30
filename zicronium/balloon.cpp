@@ -126,9 +126,9 @@ u64 bitReverse(u64 v, size_t nBits) {
  *
  */
 
-BitStream::BitStream(u32* bytes, size_t len) {
-    this->bytes = new u32[len];
-    memcpy(this->bytes, bytes, len * sizeof(u32));
+BitStream::BitStream(byte* bytes, size_t len) {
+    this->bytes = new byte[len];
+    memcpy(this->bytes, bytes, len);
     this->bsz = len * 8;
     this->sz = len;
     this->asz = sz;
@@ -138,8 +138,8 @@ BitStream::BitStream(u32* bytes, size_t len) {
 
 BitStream::BitStream(size_t len) {
     assert(len > 0);
-    this->bytes = new u32[len];
-    memset(this->bytes, 0, len * sizeof(u32));
+    this->bytes = new byte[len];
+    memset(this->bytes, 0, len);
     this->bsz = len * 8;
     this->asz = len;
     this->rPos = 0;
@@ -300,22 +300,22 @@ void BitStream::writeValue(u64 val) {
 //
 void BitStream::allocNewChunk() {
     this->asz += 0xffff;
-    u32* tBytes = new u32[this->asz];
-    memset(tBytes, 0, sizeof(u32) * this->asz);
-    memcpy(tBytes, this->bytes, sizeof(u32) * this->sz);
+    byte* tBytes = new byte[this->asz];
+    memset(tBytes, 0, this->asz);
+    memcpy(tBytes, this->bytes, this->sz);
     delete[] this->bytes;
     this->bytes = tBytes;
 }
 
 void BitStream::clip() {
     //wtf???
-    u32* tBytes = new u32[this->asz];
+    byte* tBytes = new byte[this->asz];
     u32 osz = this->asz;
     memcpy(tBytes, this->bytes, this->asz);
     this->asz = this->sz;
     delete[] this->bytes;
-    this->bytes = new u32[this->asz];
-    memset(this->bytes, 0, sizeof(u32) * this->asz);
+    this->bytes = new byte[this->asz];
+    memset(this->bytes, 0, this->asz);
     memcpy(this->bytes, tBytes, osz);
     delete[] tBytes;
 }
@@ -324,7 +324,7 @@ void BitStream::calloc(size_t sz) {
     if (this->bytes)
         delete[] this->bytes;
 
-    this->bytes = new u32[sz];
+    this->bytes = new byte[sz];
 
     this->asz = sz;
     this->bsz = sz * 8;
@@ -343,6 +343,13 @@ void WriteVBitsToStream(BitStream& stream, u64 val, size_t nBits) {
     val &= (1 << nBits) - 1;
 
     for (size_t i = 0; i < nBits; i++) //could change this to a while loop but i dont think i should
+        stream.writeBit((val >> i) & 1);
+}
+
+void WriteVPBitsToStream(BitStream& stream, u64 val, size_t nBits) {
+    if (nBits <= 0) return;
+
+    for (i32 i = 0; i < nBits; i++)
         stream.writeBit((val >> i) & 1);
 }
 
@@ -1393,8 +1400,19 @@ void _stream_tree_write(BitStream *stream, HuffmanTreeInfo * litTree, HuffmanTre
     TreeFree(clTree.t);
 }
 
-//
-void _lzr_stream_write(BitStream* stream, lzr* l) {
+/**
+ *
+ * _lzr_stream_write
+ * 
+ * Compresses and writes the data from a lz77 stream into a byte stream
+ * 
+ * if writeCapByte is true it will write a final compressed 0x100 value
+ * to the stream to indicate the end of a block
+ * 
+ * just a thought, make sure lz77_encode doesn't write the 0x100 at all
+ * 
+ */
+void _lzr_stream_write(BitStream* stream, lzr* l, u32* checksum, bool writeCapByte = true) {
     if (!stream || !l) 
         return;
 
@@ -1404,7 +1422,54 @@ void _lzr_stream_write(BitStream* stream, lzr* l) {
     if (!enc_tree_inf.bitLens)
         return;
 
-    _stream_tree_write(enc_tree_inf.bitLens, enc_tree_inf.alphaSz, l->distTree.bitLens, l->distTree.alphaSz);
+    //write the trees
+    _stream_tree_write(stream, &enc_tree_inf, &l->distTree);
+
+    //encode all the data
+    *checksum = ADLER32_BASE;
+
+    _foreach(u32, val, l->encDat, l->encSz) {
+        u32 sym = *val;
+        adler32_compute_next(*checksum, sym);
+
+        const size_t bl = enc_tree_inf.bitLens[sym];
+
+        //back ref
+        if (sym >= 257) {
+            //get values
+            u32 distDat = *++val;
+            size_t 
+                distIdx = (distDat >> 16) & 0xff,
+                distExtra = distDat & 0xffff,
+                lenExtra = (*++val) & 0xffff;
+
+            size_t distBl = l->distTree.bitLens[distIdx];
+
+            //write the back reference
+            WriteVBitsToStream(*stream, bitReverse(EncodeSymbol(sym & 0xfff, enc_tree_inf.t),bl),bl); //length base
+            WriteVBitsToStream(*stream, lenExtra, LengthExtraBits[sym-257]); //length extra
+            WriteVBitsToStream(*stream, bitReverse(EncodeSymbol(distIdx, l->distTree.t), distBl), distBl); //distance base
+            WriteVBitsToStream(*stream, distExtra, DistanceExtraBits[distIdx]); //distance extra
+        } else
+            WriteVBitsToStream(
+                *stream,
+                bitReverse(
+                    EncodeSymbol(sym, enc_tree_inf.t),
+                    bl
+                ),
+                bl
+            );
+    }
+
+    //writes a 0x100 to the end to indicate the end of a block
+    if (writeCapByte && enc_tree_inf.alphaSz >= 256) {
+        const size_t bl = enc_tree_inf.bitLens[256];
+        WriteVBitsToStream(*stream,bitReverse(EncodeSymbol(256, enc_tree_inf.t),bl),bl);
+    }
+
+    stream->writeValue(*checksum);
+    _safe_free_a(enc_tree_inf.bitLens);
+    TreeFree(enc_tree_inf.t);
 }
 
 /**
@@ -1421,7 +1486,14 @@ enum deflate_block_type {
     dfb_dynamic
 };
 
-i32 WriteDeflateBlockToStream(BitStream* stream, bin* block_data, const size_t winBits, const i32 level, bool finalBlock = false) {
+/**
+ * 
+ * WriteDeflateBlockToStream
+ * 
+ * Compresses the data given then writes a deflate block to the given stream
+ * 
+ */
+i32 WriteDeflateBlockToStream(BitStream* stream, bin* block_data, const size_t winBits, const i32 level, u32* checksum, bool finalBlock = false) {
     deflate_block_type bType = level > 0 ? dfb_dynamic : dfb_static;
 
     //write some info
@@ -1443,6 +1515,8 @@ i32 WriteDeflateBlockToStream(BitStream* stream, bin* block_data, const size_t w
 
         //max compressoin
     case 2: {
+
+        //lz77 encode the data
         lzr lzDat = lz77_encode(block_data->dat, block_data->sz, winBits);
 
         if (!lzr_good(&lzDat)) {
@@ -1451,10 +1525,7 @@ i32 WriteDeflateBlockToStream(BitStream* stream, bin* block_data, const size_t w
             return 1;
         }
 
-        //TODO: WRITE TREES
-
-        _lzr_stream_write(stream, &lzDat);
-
+        _lzr_stream_write(stream, &lzDat, checksum, true /*true value makes sure 0x100 value is added at the end*/); //write the lzr stream
         lzr_free(&lzDat);
         break;
     }
@@ -1493,11 +1564,31 @@ balloon_result Balloon::Deflate(byte* data, size_t sz, u32 compressionLevel, con
 
     //deflate everything officially
     //TODO: multiple blocks of data
+    // do the above TODO when adding multi threading
 
+    bin dat = {
+        .dat = data,
+        .sz = sz
+    };
 
+    u32 checksum = 0;
 
-    return { 0 };
+    if (WriteDeflateBlockToStream(&rStream, &dat, winBits, compressionLevel, &checksum, true))
+        std::cout << "Error something went wrong when writing deflate block!" << std::endl;
+
+    //construct result
+    balloon_result res = {
+        .data = rStream.bytes,
+        .sz = rStream.sz,
+        .checksum = checksum,
+        .compressionMethod = compressionLevel
+    };
+
+    //NOTE: dont free stream!!! (this is because we dont memcpy to result struct it just points to the streams memory)
+
+    return res;
 }
 
 //line 861, lets see how off this comment gets
 //line 1231, yeah that comment above is way off rn, but lets so how off this one gets :3
+//line 1561, bruh how is the comment above off by 300 lines after 1 day ;-;
