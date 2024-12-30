@@ -354,6 +354,8 @@ struct huffman_node {
     u32 val = 0;
     size_t count = 0, depth = 0, cmpCount = 0;
     bool leaf = false;
+    i32* symCodes = nullptr;
+    size_t alphaSz = 0;
 };
 
 //
@@ -365,6 +367,59 @@ struct treeComparison {
     }
 };
 
+//generates the symbol codes for a given tree
+void _GenSymCodes(huffman_node* root, huffman_node* node, i32 cCode = 0x00) {
+    if (!root || !node) return;
+
+    if (node->left != nullptr || node->right != nullptr) {
+        if (node->left != nullptr)  _GenSymCodes(root, node->left, (cCode << 1));
+        if (node->right != nullptr) _GenSymCodes(root, node->right, (cCode << 1) | 0x1);
+    }
+    else if (node->val < root->alphaSz)
+        root->symCodes[node->val] = cCode;
+}
+
+/**
+ *
+ * Generate Code Table
+ *
+ * Function to generate all character codes based off a given tree.
+ * This must be called on a tree before you call Encode Symbol because
+ * all Encode Symbol does is reference this table.
+ *
+ * *Note if this is not
+ * called then EncodeSymbol will call it for you.
+ *
+ * If there is no good alphabet size then the alphabet size will be set
+ * to DEFAULT_ALPHABET_SIZE (defined below)
+ *
+ * [HuffmanTreeNode*] tree -> huffman tree to generate code table for
+ * [size_t] aSize -> size of the tree's alphabet
+ *
+ */
+
+#define DEFAULT_ALPHABET_SIZE 288
+
+ //
+void GenerateCodeTable(huffman_node* tree, size_t alphaSz = 0) {
+    if (tree->alphaSz == 0) {
+        if (alphaSz <= 0)
+            alphaSz = DEFAULT_ALPHABET_SIZE;
+
+        tree->alphaSz = alphaSz;
+    }
+
+    //allocate code table
+    if (tree->symCodes)
+        _safe_free_a(tree->symCodes);
+
+    tree->symCodes = new i32[alphaSz];
+    ZeroMem(tree->symCodes, alphaSz);
+
+    //generate codes
+    _GenSymCodes(tree, tree);
+}
+
 /**
  *
  * TreeFree
@@ -374,6 +429,9 @@ struct treeComparison {
  */
 void TreeFree(huffman_node* root) {
     if (root == nullptr) return;
+
+    if (root->symCodes)
+        _safe_free_a(root->symCodes);
 
     if (root->left) TreeFree(root->left);
     if (root->right) TreeFree(root->right);
@@ -560,7 +618,7 @@ huffman_node* BitLengthsToHTree(u32* bitLens, size_t blLen, size_t aLen) {
 
     //free and return
     delete[] blCount;
-
+    res->alphaSz = aLen;
     return res;
 }
 
@@ -584,6 +642,7 @@ huffman_node* CovnertTreeToCanonical(huffman_node* tree, size_t alphabetSize, bo
     if (deleteOld)
         TreeFree(tree);
 
+    cTree->alphaSz = alphabetSize;
     return cTree;
 }
 
@@ -666,6 +725,7 @@ huffman_node* GenCanonicalTreeFromCounts(size_t* counts, size_t alphaSz, i32 max
 
     //generate canonical tree
     huffman_node* r = BitLengthsToHTree(bitLens, alphaSz, alphaSz);
+    r->alphaSz = alphaSz;
     _safe_free_a(bitLens);
     return r;
 }
@@ -696,7 +756,7 @@ HuffmanTreeInfo GenCanonicalTreeInfFromCounts(size_t* counts, size_t alphaSz, i3
                 .count = *count,
                 .cmpCount = *count,
                 .leaf = true
-                });
+            });
 
 
     //tree root
@@ -731,6 +791,7 @@ HuffmanTreeInfo GenCanonicalTreeInfFromCounts(size_t* counts, size_t alphaSz, i3
 
     //generate canonical tree
     t_inf.t = BitLengthsToHTree(t_inf.bitLens, alphaSz, alphaSz);
+    t_inf.t->alphaSz = alphaSz;
     return t_inf;
 }
 
@@ -895,7 +956,7 @@ u32 EncodeSymbol(u32 sym, huffman_node* tree) {
     assert(sym < tree->alphabetSz);
     
     if (tree->symCodes == nullptr)
-        GenerateCodeTable(tree, tree->alphabetSz);
+        GenerateCodeTable(tree, tree->alphaSz);
 
     if (tree->symCodes != nullptr)
         return tree->symCodes[sym];
@@ -1230,6 +1291,9 @@ void _stream_tree_write(BitStream *stream, HuffmanTreeInfo * litTree, HuffmanTre
 
     if (!clRleInf.rle_dat) {
         std::cout << "Error failed to rle encode!" << std::endl;
+        _safe_free_a(combinedBl);
+        _safe_free_a(clRleInf.cl_counts);
+        _safe_free_a(clRleInf.rle_dat);
         return;
     }
 
@@ -1239,6 +1303,9 @@ void _stream_tree_write(BitStream *stream, HuffmanTreeInfo * litTree, HuffmanTre
 
     if (HLIT < 0 || HDIST < 0 || HCL < 0) {
         std::cout << "Error invalid Lit tree length, Dist tree length, or Code length tree length!" << std::endl;
+        _safe_free_a(combinedBl);
+        _safe_free_a(clRleInf.cl_counts);
+        _safe_free_a(clRleInf.rle_dat);
         return;
     }
 
@@ -1252,6 +1319,11 @@ void _stream_tree_write(BitStream *stream, HuffmanTreeInfo * litTree, HuffmanTre
 
     if (!clTree.bitLens || !clTree.t) {
         std::cout << "Failed to generate code length tree!" << std::endl;
+        _safe_free_a(combinedBl);
+        _safe_free_a(clRleInf.cl_counts);
+        _safe_free_a(clRleInf.rle_dat);
+        _safe_free_a(clTree.bitLens);
+        TreeFree(clTree.t);
         return;
     }
 
@@ -1270,17 +1342,55 @@ void _stream_tree_write(BitStream *stream, HuffmanTreeInfo * litTree, HuffmanTre
         cur < end; 
         cur += __rESz
     ) {
-        if (*cur < 16) {
-            u32 sym = *cur;
-            size_t code_len = clTree.bitLens[sym];
+        u32 sym = *cur;
+        size_t code_len = clTree.bitLens[sym];
+
+        WriteVBitsToStream(
+            *stream,
+            bitReverse(
+                EncodeSymbol(sym, clTree.t),
+                code_len
+            ),
+            code_len
+        );
+
+        //have to add more data if it isn't just the symbol
+        if (sym >= 16) {
+            size_t nWBits = 0;
+
+            //get number of bits that are gonna be written
+            switch (sym) {
+            case 16:
+                nWBits = RLE_L_BITS;
+                break;
+            case 17:
+                nWBits = RLE_Z1_BITS;
+                break;
+            case 18:
+                nWBits = RLE_Z2_BITS;
+                break;
+            }
+
+            if (nWBits <= 0) {
+                std::cout << "[Warning] invalid number of bits during rle tree write!" << std::endl;
+                continue;
+            }
+
+            //write the next value that is gonna be copied a bunch
             WriteVBitsToStream(
                 *stream,
-                bitReverse(
-                    EncodeSymbol()
-                )
+                *++cur,
+                nWBits
             );
         }
     }
+
+    //memory cleanup
+    _safe_free_a(combinedBl);
+    _safe_free_a(clRleInf.cl_counts);
+    _safe_free_a(clRleInf.rle_dat);
+    _safe_free_a(clTree.bitLens);
+    TreeFree(clTree.t);
 }
 
 //
