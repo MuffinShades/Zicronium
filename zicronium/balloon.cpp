@@ -14,7 +14,7 @@
 
 struct HuffmanTreeInfo {
     huffman_node* t;
-    size_t* bitLens;
+    u32* bitLens;
     size_t alphaSz;
 };
 
@@ -54,17 +54,35 @@ const int compression_table_old[10][5] = {
     /* 9 */ {32, 258, 258, 4096}    /* max compression */
 };
 
-//lz77 constants
+/**
+ *  
+ * Tables used throughout various steps of decoding and ecoding
+ * 
+ * LengthExtraBits - lz77 encode & decode
+ * LengthBase - lx77 encode & decode
+ * DistanceExtraBits - lz77 encode & decode
+ * DistanceBase - lz77 encode & decode
+ * CodeLengthCodesOrder - trees encode & decode
+ * 
+ */
 const i32 LengthExtraBits[] = { 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0 };
 const i32 LengthBase[] = { 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258 };
 const i32 DistanceExtraBits[] = { 0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13 };
 const i32 DistanceBase[] = { 1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577 };
+const i32 CodeLengthCodesOrder[] = { 16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15 };
 
+/**
+ *
+ * Constants used during checksum generation and
+ * checking
+ * 
+ */
 const uint32_t MOD_ADLER = 65521; //0xfff1
 constexpr u32 ADLER_MASK = 0xffff;
 
 #define ADLER32_BASE 1
 
+//chck sum function
 void adler32_compute_next(u32& cur, const byte val) {
     u32 a = cur & ADLER_MASK,
         b = (cur >> 0x10) & ADLER_MASK;
@@ -75,6 +93,11 @@ void adler32_compute_next(u32& cur, const byte val) {
     cur = (b << 0x10) | a;
 }
 
+/**
+ *
+ * Constants used during tree encoding
+ * 
+ */
 #define RLE_Z2_BASE 0xb
 #define RLE_Z1_BASE 0x3
 
@@ -87,6 +110,13 @@ void adler32_compute_next(u32& cur, const byte val) {
 
 #define RLE_L_MASK 0x3
 #define RLE_L_BASE 0x3
+
+u64 bitReverse(u64 v, size_t nBits) {
+    u64 rs = 0x00;
+    for (i32 i = nBits - 1; i >= 0; i--)
+        rs |= (((v & (1 << i)) >> i) & 1) << ((nBits - 1) - i); //yes just a lot of bit shifting stuff
+    return rs;
+}
 
 /**
  *
@@ -307,6 +337,18 @@ void BitStream::calloc(size_t sz) {
 }
 
 
+void WriteVBitsToStream(BitStream& stream, u64 val, size_t nBits) {
+    if (nBits <= 0) return;
+
+    val &= (1 << nBits) - 1;
+
+    for (size_t i = 0; i < nBits; i++) //could change this to a while loop but i dont think i should
+        stream.writeBit((val >> i) & 1);
+}
+
+
+//this is where cool stuff begins
+
 struct huffman_node {
     huffman_node* left = nullptr, * right = nullptr; //left and right pointers
     u32 val = 0;
@@ -446,9 +488,9 @@ template<size_t alphaSz> huffman_node* GenTreeFromCounts(size_t* counts, i32 max
  * gets the length of the bit lengths for a tree
  * 
  */
-size_t* getTreeBitLens(huffman_node* tree, size_t alphabetSize, i32 currentLen = 0, size_t* cbl = nullptr) {
+u32* getTreeBitLens(huffman_node* tree, size_t alphabetSize, i32 currentLen = 0, u32* cbl = nullptr) {
     if (cbl == nullptr) {
-        cbl = new size_t[alphabetSize];
+        cbl = new u32[alphabetSize];
         ZeroMem(cbl, alphabetSize);
     }
 
@@ -474,7 +516,7 @@ size_t* getTreeBitLens(huffman_node* tree, size_t alphabetSize, i32 currentLen =
  * gets the bit lengths counts for a tree uh yeah
  * 
  */
-size_t* getBitLenCounts(size_t* bitLens, size_t blLen, size_t MAX_BITS) {
+size_t* getBitLenCounts(u32* bitLens, size_t blLen, size_t MAX_BITS) {
     size_t* res = new size_t[MAX_BITS + 1];
     ZeroMem(res, MAX_BITS + 1);
 
@@ -494,8 +536,8 @@ size_t* getBitLenCounts(size_t* bitLens, size_t blLen, size_t MAX_BITS) {
  * blLEn - number of bit lengths
  * 
  */
-huffman_node* BitLengthsToHTree(size_t* bitLens, size_t blLen, size_t aLen) {
-    const size_t MAX_BITS = ArrMax<size_t>(bitLens, blLen);
+huffman_node* BitLengthsToHTree(u32* bitLens, size_t blLen, size_t aLen) {
+    const size_t MAX_BITS = ArrMax<u32>(bitLens, blLen);
     size_t* blCount = getBitLenCounts(bitLens, blLen, MAX_BITS);
 
     std::vector<i32> nextCode = { 0,0 };
@@ -531,7 +573,7 @@ huffman_node* BitLengthsToHTree(size_t* bitLens, size_t blLen, size_t aLen) {
  */
 huffman_node* CovnertTreeToCanonical(huffman_node* tree, size_t alphabetSize, bool deleteOld = false) {
     //get bit lengths of each code
-    size_t* bitLens = getTreeBitLens(tree, alphabetSize);
+    u32* bitLens = getTreeBitLens(tree, alphabetSize);
 
     //start to create le tree
     huffman_node* cTree = BitLengthsToHTree(bitLens, alphabetSize, alphabetSize);
@@ -546,7 +588,7 @@ huffman_node* CovnertTreeToCanonical(huffman_node* tree, size_t alphabetSize, bo
 }
 
 //helper function that increase bit length for all child nodes of a node
-void _bl_inc(size_t** bl, huffman_node* node, const size_t charMax) {
+void _bl_inc(u32** bl, huffman_node* node, const size_t charMax) {
     if (!bl || !node) return;
 
     if (node->leaf)
@@ -597,7 +639,7 @@ huffman_node* GenCanonicalTreeFromCounts(size_t* counts, size_t alphaSz, i32 max
     //tree root
     huffman_node* root = nullptr;
 
-    size_t* bitLens = new size_t[alphaSz];
+    u32* bitLens = new u32[alphaSz];
     ZeroMem(bitLens, alphaSz);
 
     //construct tree
@@ -660,7 +702,7 @@ HuffmanTreeInfo GenCanonicalTreeInfFromCounts(size_t* counts, size_t alphaSz, i3
     //tree root
     huffman_node* root = nullptr;
     HuffmanTreeInfo t_inf = {
-        .bitLens = new size_t[alphaSz],
+        .bitLens = new u32[alphaSz],
         .alphaSz = alphaSz
     };
     ZeroMem(t_inf.bitLens, alphaSz);
@@ -832,6 +874,33 @@ _match longest_match(hash_node<_lz_win_ref>* firstMatch, lz_inst* ls, match_sett
         .node = bestMatch,
         .matchSz = bestSz
     };
+}
+
+/**
+ *
+ * EncodeSymbol
+ *
+ * Function to encode a symbol with a given huffman tree. This
+ * is used by deflate for the huffman coding.
+ *
+ * [u32] sym -> symbol to be encoded
+ * [HuffmanTreeNode*] tree -> huffman tree to encode the symbol
+ * with
+ *
+ */
+
+
+//TODO: fix this function in this context
+u32 EncodeSymbol(u32 sym, huffman_node* tree) {
+    assert(sym < tree->alphabetSz);
+    
+    if (tree->symCodes == nullptr)
+        GenerateCodeTable(tree, tree->alphabetSz);
+
+    if (tree->symCodes != nullptr)
+        return tree->symCodes[sym];
+    else
+        return 0u;
 }
 
 /**
@@ -1136,21 +1205,82 @@ _codeLenInf _tree_rle_encode(u32* ccLens, size_t nc, const size_t codeLengthAlph
 //goal: encode literal and distance tree
 //
 //
-void _stream_tree_write(size_t *litBitLens, size_t nlbl, size_t *distBitLens, size_t ndbl) {
-    if (!litBitLens || !distBitLens) {
+void _stream_tree_write(BitStream *stream, HuffmanTreeInfo * litTree, HuffmanTreeInfo *distTree) {
+    if (!litTree || !distTree || !stream) {
         std::cout << "Error invalid tree!" << std::endl;
         return;
     }
 
     //remember to probably omit trailing zeros or something
     //first combine the bit lengths from literal and distance tree
-    size_t* combinedBl = new size_t[nlbl + ndbl];
+    const size_t ncbl = litTree->alphaSz + distTree->alphaSz;
+    u32* combinedBl = new u32[ncbl];
+
+    ZeroMem(combinedBl, ncbl);
+
+    size_t litOff;
+
+    memcpy(combinedBl, litTree->bitLens, litOff = sizeof(u32) * litTree->alphaSz);
+    memcpy(combinedBl + litOff, distTree->bitLens, sizeof(u32) * distTree->alphaSz);
 
     //next create the code length tree
     const size_t codeLengthAlphaSz = 19; //number of codes for code length alphabet
 
-    //_tree_rle_encode
-    
+    _codeLenInf clRleInf = _tree_rle_encode(combinedBl, ncbl, codeLengthAlphaSz); //rle encoding
+
+    if (!clRleInf.rle_dat) {
+        std::cout << "Error failed to rle encode!" << std::endl;
+        return;
+    }
+
+    i32 HLIT = litTree->alphaSz - 257,
+        HDIST = distTree->alphaSz - 1,
+        HCL = codeLengthAlphaSz - 4;
+
+    if (HLIT < 0 || HDIST < 0 || HCL < 0) {
+        std::cout << "Error invalid Lit tree length, Dist tree length, or Code length tree length!" << std::endl;
+        return;
+    }
+
+    //write all le values to the stream
+    WriteVBitsToStream(*stream, HLIT,  5);
+    WriteVBitsToStream(*stream, HDIST, 5);
+    WriteVBitsToStream(*stream, HCL,   4);
+
+    //make the code length tree
+    HuffmanTreeInfo clTree = GenCanonicalTreeInfFromCounts(clRleInf.cl_counts, codeLengthAlphaSz);
+
+    if (!clTree.bitLens || !clTree.t) {
+        std::cout << "Failed to generate code length tree!" << std::endl;
+        return;
+    }
+
+    //write the code length tree bit length data to the stream
+    for (i32 i = 0; i < codeLengthAlphaSz; i++)
+        WriteVBitsToStream(
+            *stream,
+            clTree.bitLens[CodeLengthCodesOrder[i]],
+            3
+        );
+
+    //encode the literal and distance tree
+    const size_t __rESz = sizeof(u32); //size of 1 rle encoded element
+    for (
+        u32* cur = clRleInf.rle_dat, *end = clRleInf.rle_dat + clRleInf.enc_sz * __rESz; 
+        cur < end; 
+        cur += __rESz
+    ) {
+        if (*cur < 16) {
+            u32 sym = *cur;
+            size_t code_len = clTree.bitLens[sym];
+            WriteVBitsToStream(
+                *stream,
+                bitReverse(
+                    EncodeSymbol()
+                )
+            );
+        }
+    }
 }
 
 //
