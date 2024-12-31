@@ -1626,7 +1626,7 @@ i32 WriteDeflateBlockToStream(BitStream* stream, bin* block_data, const size_t w
 
         //no compression so we just write stuff
     case 0: {
-
+        std::cout << "TODO: this part ;3" << std::endl;
         break;
     }
 
@@ -1717,6 +1717,17 @@ struct InflateBlock {
     deflate_block_type block_type;
 };
 
+/**
+ *
+ * _decode_trees
+ * 
+ * Decodes the distance and literal trees from the
+ * bitstream
+ * 
+ * Returns a pointer to 2 trees where the first is 
+ * the lit tree and the second is the distance tree
+ *
+ */
 huffman_node** _decode_trees(BitStream* stream) {
     if (!stream)
         return nullptr;
@@ -1788,11 +1799,90 @@ huffman_node** _decode_trees(BitStream* stream) {
     }
 
     //TODO: generate the trees based on the combined bit lengths
+
+    //extract individual bit lengths
+    u32* litBl = new u32[nLitCodes],
+       * distBl = new u32[nDistCodes];
+
+    ZeroMem(litBl, nLitCodes);
+    ZeroMem(distBl, nDistCodes);
+
+    memcpy(litBl, combinedBitLens, nLitCodes * sizeof(u32));
+    memcpy(distBl, combinedBitLens + nLitCodes, nDistCodes * sizeof(u32));
+
+    //create the 2 trees
+    huffman_node* litTree = BitLengthsToHTree(litBl, nLitCodes, nLitCodes),
+                * distTree = BitLengthsToHTree(distBl, nDistCodes, nDistCodes);
+
+    //manage le memory and error check
+    _safe_free_a(combinedBitLens);
+    _safe_free_a(litBl);
+    _safe_free_a(distBl);
+
+    if (!litTree) {
+        std::cout << "Failed to generate literal tree!" << std::endl;
+        if (distTree)
+            TreeFree(distTree);
+        return nullptr;
+    }
+
+    if (!distTree) {
+        std::cout << "Failed to generate distance tree!" << std::endl;
+        if (litTree)
+            TreeFree(litTree);
+        return nullptr;
+    }
+
+    //create container for the 2 decoded trees
+    huffman_node** _tContain = new huffman_node * [2];
+    _tContain[0] = litTree;
+    _tContain[1] = distTree;
+
+    return _tContain;
 }
 
 void _inflate_block_generic(InflateBlock* block, BitStream* stream, huffman_node *litTree, huffman_node *distTree) {
     if (!litTree || !distTree)
         return;
+
+    std::vector<byte> dec_data;
+
+    for (;;) {
+        u32 sym = DecodeSymbol(stream, litTree);
+
+        if (sym <= 255)
+            dec_data.push_back((byte)sym & 0xff);
+        else if (sym == 256)
+            break;
+
+        //back ref :O
+        else {
+            i32 lenIdx = sym - 257;
+
+            //get length
+            u32 lenExtraBits = LengthExtraBits[lenIdx],
+                len = LengthBase[lenIdx] + stream->readNBits(lenExtraBits);
+
+            //get distance
+            i32 distIdx = DecodeSymbol(stream, distTree);
+
+            u32 distExtraBits = DistanceExtraBits[distIdx],
+                dist = DistanceBase[distIdx] + stream->readNBits(distExtraBits);
+
+            //copy character from back ref
+            forrange(len) {
+                const size_t decSz = dec_data.size();
+                if (dist >= decSz)
+                    continue;
+                dec_data.push_back(dec_data[decSz - dist]);
+            }
+        }
+    }
+
+    //copy over data into the block
+    block->data = new byte[block->sz = dec_data.size()];
+    ZeroMem(block->data, block->sz);
+    memcpy(block->data, dec_data.data(), block->sz);
 }
 
 void _inflate_block_none(InflateBlock* block, BitStream* stream) {
@@ -1856,6 +1946,20 @@ void _inflate_block_static(InflateBlock* block, BitStream* stream) {
 void _inflate_block_dynamic(InflateBlock* block, BitStream* stream) {
     if (!block || !stream)
         return;
+
+    huffman_node** trees = _decode_trees(stream);
+
+    if (!trees) {
+        std::cout << "Error failed to decode trees!" << std::endl;
+        return;
+    }
+
+    _inflate_block_generic(block, stream, trees[0], trees[1]);
+
+    //memory management
+    TreeFree(trees[0]);
+    TreeFree(trees[1]);
+    _safe_free_a(trees);
 }
 
 //
@@ -1922,12 +2026,34 @@ balloon_result Balloon::Inflate(byte* data, size_t sz) {
     //now inflate the blocks
     bool eos = false;
 
+    size_t totalBlockSize = 0;
+
+    std::vector< InflateBlock> blocks;
+
     while (!eos) {
         InflateBlock c_block = _stream_block_inflate(&datStream);
-
-        //TODO: appead block data to output stream
-
+        totalBlockSize += c_block.sz;
+        blocks.push_back(c_block);
         eos = c_block.blockFinal;
+    }
+
+    //assemble blocks
+    res.data = new byte[res.sz = totalBlockSize];
+    ZeroMem(res.data, res.sz);
+    byte* curChunk = res.data, *datEnd = res.data + res.sz;
+
+    for (auto& block : blocks) {
+        if (!block.data)
+            continue;
+
+        //copy block data
+        memcpy(curChunk, block.data, block.sz);
+        curChunk += block.sz;
+        _safe_free_a(block.data);
+
+        //check to make sure we don't read anything invalid
+        if (curChunk > datEnd)
+            break;
     }
 
     return res;
@@ -1936,4 +2062,4 @@ balloon_result Balloon::Inflate(byte* data, size_t sz) {
 //line 861, lets see how off this comment gets
 //line 1231, yeah that comment above is way off rn, but lets so how off this one gets :3
 //line 1561, bruh how is the comment above off by 300 lines after 1 day ;-;
-//line 1939, it hasn't even been a day since the last comment and this comment is now on line 1939!!! HOW???? 400 LINES IN 1 DAY :O
+//line 1939, it hasn't even been a day since the last comment and this comment is now on line 1939!!! HOW???? 400-700 LINES IN 1 DAY :O
