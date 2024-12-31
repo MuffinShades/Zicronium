@@ -211,8 +211,18 @@ static u64 NumReverse(u64 v, size_t bSz) {
                                (buf) = (char*)(buf) + 1
 
 
-#define _foreach(type, cur, ptr, sz) \
+#define foreach_ptr(type, cur, ptr, sz) \
     for (\
-        type *cur=(ptr),*__end=((ptr)+((sz)*sizeof(type))); \
+        type *cur=(ptr),*__end=((ptr)+(sz)); \
         cur<__end;cur++\
     )
+
+//same as foreach_ptr but m is for manual as in cur ins't incremented each iteration, it's manual
+#define foreach_ptr_m(type, cur, ptr, sz) \
+    for (\
+        type *cur=(ptr),*__end=((ptr)+(sz)); \
+        cur<__end;\
+    )
+
+#define forrange(n) \
+    for (i64 i = 0; i < (n); i++)

@@ -34,5 +34,15 @@ i32 main() {
 	for (size_t i = 0; i < test_v.sz; i++)
 		std::cout << realigendBuf[i] << std::endl;
 
+
+	std::cout << "------ Deflate Testing --------" << std::endl;
+
+	byte testData[] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0xb, 0xb, 0xc, 0xc, 0xc, 0xc, 0xc, 0xc, 0xc, 0x69};
+
+	balloon_result testRes = Balloon::Deflate(testData, 20);
+
+	std::cout << "Result Size: " << testRes.sz << std::endl;
+
+
 	return 0;
 }

@@ -89,6 +89,7 @@ struct balloon_result {
 };
 
 class Balloon {
-	balloon_result Deflate(byte* data, size_t sz, u32 compressionLevel = 2, const size_t winBits = 0xf);
-	balloon_result Inflate(byte* data, size_t sz);
+public:
+	static balloon_result Deflate(byte* data, size_t sz, u32 compressionLevel = 2, const size_t winBits = 0xf);
+	static balloon_result Inflate(byte* data, size_t sz);
 };

@@ -76,6 +76,8 @@ public:
     }
 
     template<class _T> void copyToBuffer(_T* b, size_t bSz) {
+        if (!b)
+            return;
         memcpy((void*)b, (void*)this->dat, min(this->sz, bSz) * i_sz);
     }
 };
