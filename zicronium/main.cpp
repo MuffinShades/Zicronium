@@ -43,6 +43,14 @@ i32 main() {
 
 	std::cout << "Result Size: " << testRes.sz << std::endl;
 
+	foreach_ptr(byte, val, testRes.data, testRes.sz)
+		std::cout << (int)*val << " ";
+
+	std::cout << std::endl;
+
+	balloon_result inflateTest = Balloon::Inflate(testRes.data, testRes.sz);
+
+	std::cout << "Inflate Size: " << inflateTest.sz << std::endl;
 
 	return 0;
 }
