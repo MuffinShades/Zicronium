@@ -27,6 +27,9 @@
     <ClCompile Include="linked_map.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="filewrite.cpp">
+      <Filter>Header Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="balloon.hpp">
@@ -45,6 +48,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="realigned_buffer.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="filewrite.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

@@ -133,12 +133,14 @@
   <ItemGroup>
     <ClCompile Include="balloon.cpp" />
     <ClCompile Include="ByteStream.cpp" />
+    <ClCompile Include="filewrite.cpp" />
     <ClCompile Include="linked_map.cpp" />
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="balloon.hpp" />
     <ClInclude Include="ByteStream.hpp" />
+    <ClInclude Include="filewrite.hpp" />
     <ClInclude Include="linked_map.hpp" />
     <ClInclude Include="micro_vector.h" />
     <ClInclude Include="msutil.hpp" />

@@ -2,6 +2,7 @@
 #include "balloon.hpp"
 #include "micro_vector.h"
 #include "realigned_buffer.hpp"
+#include "filewrite.hpp"
 
 i32 main() {
 	std::cout << "Micro Vector Testing" << std::endl;
@@ -39,18 +40,33 @@ i32 main() {
 
 	byte testData[] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0xb, 0xb, 0xc, 0xc, 0xc, 0xc, 0xc, 0xc, 0xc, 0x69};
 
-	balloon_result testRes = Balloon::Deflate(testData, 20);
+	//balloon_result testRes = Balloon::Deflate(testData, 20);
 
-	std::cout << "Result Size: " << testRes.sz << std::endl;
+	//std::cout << "Result Size: " << testRes.sz << std::endl;
 
-	foreach_ptr(byte, val, testRes.data, testRes.sz)
-		std::cout << (int)*val << " ";
+	//foreach_ptr(byte, val, testRes.data, testRes.sz)
+		//std::cout << (int)*val << " ";
 
-	std::cout << std::endl;
+	//std::cout << std::endl;
 
-	balloon_result inflateTest = Balloon::Inflate(testRes.data, testRes.sz);
+	//balloon_result inflateTest = Balloon::Inflate(testRes.data, testRes.sz);
 
-	std::cout << "Inflate Size: " << inflateTest.sz << std::endl;
+	//std::cout << "Inflate Size: " << inflateTest.sz << std::endl;
+
+	file testFile = FileWrite::readFromBin("C:\\TestStuff\\zlib2.txt");
+	balloon_result testFileDeflate = Balloon::Deflate(testFile.dat, testFile.len);
+
+	std::cout << "testFile Deflate Size: " << testFileDeflate.sz << std::endl;
+	std::cout << "checksum: " << testFileDeflate.checksum << std::endl;
+
+	FileWrite::writeToBin("C:\\TestStuff\\zlib2_deflate.bin", testFileDeflate.data, testFileDeflate.sz);
+
+	balloon_result testFileInflate = Balloon::Inflate(testFileDeflate.data, testFileDeflate.sz);
+
+	std::cout << " testFile Inflate Size: " << testFileInflate.sz << std::endl;
+	std::cout << "inflate checksum: " << testFileInflate.checksum << std::endl;
+
+	FileWrite::writeToBin("C:\\TestStuff\\zlib2_inflate.txt", testFileInflate.data, testFileInflate.sz);
 
 	return 0;
 }

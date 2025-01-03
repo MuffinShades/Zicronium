@@ -428,6 +428,22 @@ void _GenSymCodes(huffman_node* root, huffman_node* node, i32 cCode = 0x00) {
         root->symCodes[node->val] = cCode;
 }
 
+//debug
+void PrintTree(huffman_node* tree, std::string tab = "", std::string code = "") {
+    if (tree == nullptr) return;
+    if (tree->right == nullptr && tree->left == nullptr) {
+        std::cout << tab << "  - " << tree->count << " " << code << " " << "  " << tree->val << "   " << (char)tree->val << std::endl;
+        return;
+    }
+
+    std::cout << tab << "|_ " << tree->count << std::endl;
+    if (tree->right != nullptr)
+        PrintTree(tree->right, tab + " ", code + "1");
+
+    if (tree->left != nullptr)
+        PrintTree(tree->left, tab + " ", code + "0");
+}
+
 /**
  *
  * Generate Code Table
@@ -883,12 +899,12 @@ u32* GetCharacterCounts(u32* data, size_t sz) {
 
 //some lz77 helper functions
 size_t lz77_get_len_idx(size_t len) {
-    size_t lastIdx = 0;
+    size_t lastIdx = 0, i = 0;
 
     for (i32 l : LengthBase) {
-        std::cout << "Len Cmp: " << l << " " << len << std::endl;
+        std::cout << "Len Cmp: " << l << " " << len << " " << lastIdx << std::endl;
         if (l >= len) break;
-
+        if (i++ == 0) continue;
         lastIdx++;
     }
 
@@ -897,11 +913,11 @@ size_t lz77_get_len_idx(size_t len) {
 
 //get codes and indexs from distances
 i32 lz77_get_dist_idx(size_t dist) {
-    size_t lastIdx = 0;
+    size_t lastIdx = 0, i = 0;
 
     for (i32 l : DistanceBase) {
         if (l >= dist) break;
-
+        if (i++ == 0) continue;
         lastIdx++;
     }
 
@@ -930,8 +946,8 @@ struct _lz_win_ref {
  * 
  */
 struct lzr {
-    u32* encDat;
-    size_t encSz, winBits;
+    byte* encDat;
+    size_t encSz, winBits, sz_per_ele = 2;
     HuffmanTreeInfo distTree;
     size_t* charCounts;
     size_t charCountSz;
@@ -1094,7 +1110,7 @@ void lzr_free(lzr* l) {
 #define _WIN_SHIFT(ls, curByte, winShift) (ls).window += (winShift); \
     (ls).winPos += (winShift); \
     (enc_byte) += (winShift)  
-
+#define SIZE_PER_LZ_ELE 2
 lzr lz77_encode(byte* dat, size_t sz, size_t winBits) {
     const size_t nMallocs = 0xf;
 
@@ -1115,6 +1131,7 @@ lzr lz77_encode(byte* dat, size_t sz, size_t winBits) {
         .encDat = nullptr,
         .encSz = 0,
         .winBits = winBits,
+        .sz_per_ele = SIZE_PER_LZ_ELE, //size per stored element (default is u16 2 bytes), but since i may change this later im leaving it variable
         .distTree = nullptr,
         .charCounts = nullptr,
         .charCountSz = lzAlphaSz
@@ -1133,12 +1150,14 @@ lzr lz77_encode(byte* dat, size_t sz, size_t winBits) {
     linked_map<_lz_win_ref, 15> hashTable;
 
     //micro vector creation / allocation
-    const size_t minSz = 0xffff;
+    /*const size_t minSz = 0xffff;
     const u32
         p_vChunkSz = sz / nMallocs,
         vChunkSz = p_vChunkSz < minSz ? minSz : p_vChunkSz;
 
-    micro_vector<3> enc_dat = micro_vector<3>(0, vChunkSz);
+    micro_vector<3> enc_dat = micro_vector<3>(0, vChunkSz);*/
+    //just use 2 bytes idk what i was thinking
+    std::vector<u16> enc_dat;
 
     //
     byte* enc_byte = dat, * end = dat + sz;
@@ -1166,7 +1185,7 @@ lzr lz77_encode(byte* dat, size_t sz, size_t winBits) {
             if (!m.node) {
                 std::cout << "Bro how tf did you mess up this badly ;-;-;-;" << std::endl;
                 _safe_free_a(distCharCount);
-                enc_dat.free();
+                //enc_dat.free();
                 lzr_free(&res);
                 return {};
             }
@@ -1204,18 +1223,20 @@ lzr lz77_encode(byte* dat, size_t sz, size_t winBits) {
             const i32 distExtra = dist - DistanceBase[min(distIdx, dsb_len)],
                          lenExtra = m.matchSz - LengthBase[min(lenIdx, lnb_len)];
 
+            std::cout << "Len Extra: " << lenExtra << " " << LengthBase[lenIdx] << std::endl;
+
             distCharCount[distIdx]++; //increase char count yk
 
             //if we get back ref change shift amount
             winShift = m.matchSz;
 
             //add back ref val
-            enc_dat.push(257 + lenIdx);
+            enc_dat.push_back(257 + lenIdx);
 
             res.charCounts[257 + lenIdx]++;
 
             /*
-            
+            (Old)
             Extra Info Format:
 
             1 byte: distance Index - [i]
@@ -1228,13 +1249,9 @@ lzr lz77_encode(byte* dat, size_t sz, size_t winBits) {
             2 byte: len extra
             
             */
-            enc_dat.push(
-                ((distIdx << 16) & 0xff) | (distExtra & 0xffff)
-            );
-
-            enc_dat.push(
-                lenExtra & 0xffff
-            );
+            enc_dat.push_back(distIdx);
+            enc_dat.push_back(distExtra);
+            enc_dat.push_back(lenExtra);
 
             std::cout << "Back: " << (257 + lenIdx) << " " << ((distIdx << 16) & 0xff | (distExtra & 0xffff)) << " " << lenExtra << std::endl;
         }
@@ -1243,7 +1260,7 @@ lzr lz77_encode(byte* dat, size_t sz, size_t winBits) {
         def_match:
 
             //encode basic character
-            enc_dat.push(*ls.window);
+            enc_dat.push_back(*ls.window);
             res.charCounts[*ls.window]++;
 
             std::cout << "Default char encode: " << (u32)*ls.window << " Char Count: " << res.charCounts[*ls.window] << std::endl;
@@ -1265,22 +1282,26 @@ lzr lz77_encode(byte* dat, size_t sz, size_t winBits) {
         std::cout << "Something went wrong when generating distance tree!" << std::endl;
 
     //copy over data
-    std::cout << "Encoded Size: " << enc_dat.sz << std::endl;
-    res.encSz = enc_dat.sz;
-    res.encDat = new u32[res.encSz];
+    //std::cout << "Encoded Size: " << enc_dat.sz << std::endl;
+    res.encSz = enc_dat.size() * res.sz_per_ele;
+    res.encDat = new byte[res.encSz];
     ZeroMem(res.encDat, res.encSz);
-    enc_dat.copyToBuffer(res.encDat, res.encSz);
+    //enc_dat.copyToBuffer(res.encDat, res.encSz);
+    memcpy(res.encDat, enc_dat.data(), res.encSz);
 
     std::cout << "------- lz77 Data --------" << std::endl;
 
-    for (i32 i = 0; i < res.encSz * 3; i++)
-        std::cout << (u32)(((byte*)enc_dat.dat)[i]) << " ";
+    /*for (i32 i = 0; i < res.encSz * 3; i++)
+        std::cout << (u32)(((byte*)enc_dat.dat)[i]) << " ";*/
+
+    foreach_ptr(byte, cur, res.encDat, res.encSz)
+        std::cout << (u32)(*cur) << " ";
     
     std::cout << std::endl << "-------------------" << std::endl;
 
     //mem management and return
     _safe_free_a(distCharCount);
-    enc_dat.free();
+    //enc_dat.free();
     return res;
 }
 
@@ -1420,6 +1441,9 @@ void _stream_tree_write(BitStream *stream, HuffmanTreeInfo * litTree, HuffmanTre
         return;
     }
 
+    std::cout << "Encoded Distance Tree" << std::endl;
+    PrintTree(distTree->t);
+
     //remember to probably omit trailing zeros or something
     //first combine the bit lengths from literal and distance tree
     const size_t ncbl = litTree->alphaSz + distTree->alphaSz;
@@ -1437,8 +1461,8 @@ void _stream_tree_write(BitStream *stream, HuffmanTreeInfo * litTree, HuffmanTre
         std::cout << *bl << " ";
     std::cout << std::endl;
 
-    std::cout << "-- Lit Bit Lens --" << std::endl;
-    foreach_ptr(u32, bl, litTree->bitLens, litTree->alphaSz)
+    std::cout << "-- Dist Bit Lens Encode --" << std::endl;
+    foreach_ptr(u32, bl, distTree->bitLens, distTree->alphaSz)
         std::cout << *bl << " ";
     std::cout << std::endl;
 
@@ -1606,7 +1630,7 @@ void _lzr_stream_write(BitStream* stream, lzr* l, u32* checksum, bool writeCapBy
     //encode all the data
     *checksum = ADLER32_BASE;
 
-    realigned_buffer<u32, 3> dat_buf = realigned_buffer<u32, 3>(l->encDat, l->encSz);
+    realigned_buffer<byte, 2> dat_buf = realigned_buffer<byte, 2>(l->encDat, l->encSz);
 
     dat_buf.computeLength();
 
@@ -1622,18 +1646,25 @@ void _lzr_stream_write(BitStream* stream, lzr* l, u32* checksum, bool writeCapBy
         //back ref
         if (sym >= 257) {
             //get values
-            u32 distDat = dat_buf[++i];
+            /*u32 distDat = dat_buf[++i];
             size_t 
                 distIdx = (distDat >> 16) & 0xff,
                 distExtra = distDat & 0xffff,
+                lenExtra = dat_buf[++i] & 0xffff;*/
+            size_t
+                distIdx = dat_buf[++i] & 0xff,
+                distExtra = dat_buf[++i] & 0xffff,
                 lenExtra = dat_buf[++i] & 0xffff;
 
             size_t distBl = l->distTree.bitLens[distIdx];
 
             //write the back reference
+            //TODO: length encoding is off by one for some reason
             WriteVBitsToStream(*stream, bitReverse(EncodeSymbol(sym & 0xfff, enc_tree_inf.t),bl),bl); //length base
             WriteVBitsToStream(*stream, lenExtra, LengthExtraBits[sym-257]); //length extra
+            std::cout << "Length Encode: " << (sym - 257) << " " << (LengthExtraBits[sym - 257]) << " " << (LengthBase[sym-257]+lenExtra) << std::endl;
             WriteVBitsToStream(*stream, bitReverse(EncodeSymbol(distIdx, l->distTree.t), distBl), distBl); //distance base
+            std::cout << "Distance Encode: " << distIdx << std::endl;
             WriteVBitsToStream(*stream, distExtra, DistanceExtraBits[distIdx]); //distance extra
         } else
             WriteVBitsToStream(
@@ -1887,12 +1918,6 @@ huffman_node** _decode_trees(BitStream* stream) {
 
     std::cout << std::endl;
 
-    std::cout << "Decoded Combined BitLens: " << std::endl;
-    forrange(nTotalCodes) {
-        std::cout << combinedBitLens[i] << " ";
-    }
-    std::cout << std::endl;
-
     //TODO: generate the trees based on the combined bit lengths
 
     //extract individual bit lengths
@@ -1905,9 +1930,18 @@ huffman_node** _decode_trees(BitStream* stream) {
     memcpy(litBl, combinedBitLens, nLitCodes * sizeof(u32));
     memcpy(distBl, combinedBitLens + nLitCodes, nDistCodes * sizeof(u32));
 
+    std::cout << "Decoded Distance BitLens: " << std::endl;
+    forrange(nDistCodes) {
+        std::cout << distBl[i] << " ";
+    }
+    std::cout << std::endl;
+
     //create the 2 trees
     huffman_node* litTree = BitLengthsToHTree(litBl, nLitCodes, nLitCodes),
                 * distTree = BitLengthsToHTree(distBl, nDistCodes, nDistCodes);
+
+    std::cout << "Decoded Distance Tree" << std::endl;
+    PrintTree(distTree);
 
     //manage le memory and error check
     _safe_free_a(combinedBitLens);
@@ -1960,8 +1994,12 @@ void _inflate_block_generic(InflateBlock* block, BitStream* stream, huffman_node
             u32 lenExtraBits = LengthExtraBits[lenIdx],
                 len = LengthBase[lenIdx] + stream->readNBits(lenExtraBits);
 
+            std::cout << "Length Decode: " << lenIdx << " " << lenExtraBits << " " << len << std::endl;
+
             //get distance
             i32 distIdx = DecodeSymbol(stream, distTree);
+
+            std::cout << "Distance Decode: " << distIdx << std::endl;
 
             u32 distExtraBits = DistanceExtraBits[distIdx],
                 dist = DistanceBase[distIdx] + stream->readNBits(distExtraBits);
