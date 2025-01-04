@@ -52,7 +52,7 @@ i32 main() {
 	//balloon_result inflateTest = Balloon::Inflate(testRes.data, testRes.sz);
 
 	//std::cout << "Inflate Size: " << inflateTest.sz << std::endl;
-
+	/*
 	file testFile = FileWrite::readFromBin("C:\\TestStuff\\zlib2.txt");
 	balloon_result testFileDeflate = Balloon::Deflate(testFile.dat, testFile.len);
 
@@ -66,7 +66,31 @@ i32 main() {
 	std::cout << " testFile Inflate Size: " << testFileInflate.sz << std::endl;
 	std::cout << "inflate checksum: " << testFileInflate.checksum << std::endl;
 
-	FileWrite::writeToBin("C:\\TestStuff\\zlib2_inflate.txt", testFileInflate.data, testFileInflate.sz);
+	FileWrite::writeToBin("C:\\TestStuff\\zlib2_inflate.txt", testFileInflate.data, testFileInflate.sz);*/
+
+	
+	//TODO: make sure when something goes wrong everything errors out
+	//ie -> rle encode error -> all functions prior error out / return
+	//TODO: find a way to cap the bit length of a character when generating a tree
+	//possible solution: when generating the trees if a bitlength greater than the max is noticed then after
+	//tree generation call a fixer function that basically takes all bitlengths, orders by lengths, and adds to
+	//the longer codes until all bit lengths are uniform and the sum of all bitlengths is the same
+	file testFile = FileWrite::readFromBin("C:\\TestStuff\\wood.wld");
+	balloon_result testFileDeflate = Balloon::Deflate(testFile.dat, testFile.len);
+
+	std::cout << "testFile Deflate Size: " << testFileDeflate.sz << std::endl;
+	std::cout << "checksum: " << testFileDeflate.checksum << std::endl;
+
+	FileWrite::writeToBin("C:\\TestStuff\\wood.bal", testFileDeflate.data, testFileDeflate.sz);
+
+	balloon_result testFileInflate = Balloon::Inflate(testFileDeflate.data, testFileDeflate.sz);
+
+	std::cout << " testFile Inflate Size: " << testFileInflate.sz << std::endl;
+	std::cout << "inflate checksum: " << testFileInflate.checksum << std::endl;
+
+	FileWrite::writeToBin("C:\\TestStuff\\wood2.wld", testFileInflate.data, testFileInflate.sz);
+	
+	
 
 	return 0;
 }

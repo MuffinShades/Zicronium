@@ -31,6 +31,7 @@ private:
         this->free();
         this->hashSz = 1 << this->hashBits;
         this->roots = new hash_node<_storeType> * [this->hashSz];
+        ZeroMem(this->roots, this->hashSz);
     }
 
     /**
@@ -129,6 +130,7 @@ public:
         for (size_t i = 0; i < this->hashSz; i++) {
             hash_node<_storeType>* cur = this->roots[i];
             while (cur) {
+                //std::cout << "Deleting:" << cur << std::endl;
                 hash_node<_storeType>* prev = cur->prev;
                 delete cur;
                 cur = prev;

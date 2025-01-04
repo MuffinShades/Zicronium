@@ -70,6 +70,10 @@ struct bin {
 #define LZ77_MIN_MATCH 0x003 // min match size for back reference
 #define LZ77_MAX_MATCH 0x102
 
+//make literal and distance code lengths
+#define DISTANCE_MAX_CODE_LENGTH 15
+#define LITERAL_MAX_CODE_LENGTH 15
+
 //from zlib on github
 const int compression_table_old[10][5] = {
     /*      good lazy nice max_chain_length */
@@ -729,6 +733,56 @@ void _bl_inc(u32* bl, huffman_node* node, const size_t charMax) {
     }
 }
 
+class BobsDiganosis {
+    bool operator()(u32* a, u32* b) {
+        return *a > *b;
+    }
+};
+
+/**
+ *
+ * Call Bob's bit length repair services today! to make
+ * sure all your bit lengths are the right length!
+ * 
+ * Bob's Bit Length Repair services have been the number
+ * 1 bit length repair service for over 10 years!
+ * 
+ * Don't delay! Call today!
+ * 
+ * Call: 444-732-9191 for a price estimate
+ * 
+ */
+
+u32* BobsBitLengthRepairServices(u32 *bl, size_t alphaSz, const i32 maxBl) {
+    if (!bl || alphaSz == 0 || maxBl <= 0) return nullptr;
+
+    //first sort the bit lengths into 2 vectors
+    std::vector<u32*> good_bl, bad_bl;
+
+    foreach_ptr(u32, B, bl, alphaSz)
+        if (*B > maxBl)
+            bad_bl.push_back(B);
+        else
+            good_bl.push_back(B);
+
+    //then order the good vector by length
+
+    //next do the thing where you go bad bit length by bad bit length and subtract from it and add to the first element
+    //in good until the bad bit length is good. 
+    for (auto* bl : good_bl) {
+
+    }
+
+    //finally verify that a give bit length can canonically exist
+    //not quite sure how to do this but it involves computing certain values based
+    //on canonical tree generation
+    //
+    //if something isn't good then we need to run a new, more intensive, procedure to
+    //fix all the bit lengths
+
+    //TODO: make sure bob's services are used in all tree generation functions
+}
+
 /**
  * 
  * GenCanonicalTreeFromCounts
@@ -770,6 +824,8 @@ huffman_node* GenCanonicalTreeFromCounts(size_t* counts, size_t alphaSz, i32 max
     u32* bitLens = new u32[alphaSz];
     ZeroMem(bitLens, alphaSz);
 
+    bool callBob = false;
+
     //construct tree
     while (tNodes.size() > 1) {
         huffman_node* newNode = new huffman_node;
@@ -788,9 +844,21 @@ huffman_node* GenCanonicalTreeFromCounts(size_t* counts, size_t alphaSz, i32 max
 
         //as we construct tree keep track of bitlengths
         _bl_inc(bitLens, newNode, alphaSz);
+
+        if (maxLen >= 0 && bitLens[newNode->val] > maxLen)
+            callBob = true; //oh crap somethings wrong! must call Bob!
     }
 
     TreeFree(root); //delete temporary tree
+
+    if (callBob) {
+        bitLens = BobsBitLengthRepairServices(bitLens, alphaSz, maxLen);
+
+        if (!bitLens) {
+            std::cout << "Uh oh, bob couldn't repair teh bit lengths so I guess I need to error out!" << std::endl;
+            return nullptr;
+        }
+    }
 
     //generate canonical tree
     huffman_node* r = BitLengthsToHTree(bitLens, alphaSz, alphaSz);
@@ -902,8 +970,8 @@ size_t lz77_get_len_idx(size_t len) {
     size_t lastIdx = 0, i = 0;
 
     for (i32 l : LengthBase) {
-        std::cout << "Len Cmp: " << l << " " << len << " " << lastIdx << std::endl;
-        if (l >= len) break;
+        //std::cout << "Len Cmp: " << l << " " << len << " " << lastIdx << std::endl;
+        if (l > len) break;
         if (i++ == 0) continue;
         lastIdx++;
     }
@@ -916,7 +984,7 @@ i32 lz77_get_dist_idx(size_t dist) {
     size_t lastIdx = 0, i = 0;
 
     for (i32 l : DistanceBase) {
-        if (l >= dist) break;
+        if (l > dist) break;
         if (i++ == 0) continue;
         lastIdx++;
     }
@@ -961,7 +1029,7 @@ struct lzr {
  * 
  */
 struct lz_inst {
-    byte* window = nullptr, *winStart = nullptr;
+    byte* window = nullptr, *winStart = nullptr, *winMax = nullptr;
     size_t winBits = 0, winSz = 0, winPos = 0;
 };
 
@@ -983,13 +1051,14 @@ _match longest_match(hash_node<_lz_win_ref>* firstMatch, lz_inst* ls, match_sett
     hash_node<_lz_win_ref>* curMatch = firstMatch, *bestMatch = firstMatch;
     size_t bestSz = 0;
 
-    byte *cur = ls->window, *comp = curMatch->val.ptr;
+    byte *cur = ls->window, *comp = curMatch->val.ptr, *_winEnd = ls->window + ls->winSz, *_trueWinEnd = ls->winMax;
 
     //get le best match
     while (curMatch) {
         size_t mSz = 0;
         //do le matching
-        do { } while (*cur++ == *comp++ && ++mSz < ms.maxLength);
+        //std::cout << cur << " " << comp << std::endl;
+        do {} while (cur < _winEnd && comp < _trueWinEnd && *cur++ == *comp++ && ++mSz < ms.maxLength);
 
         if (mSz > bestSz) {
             bestMatch = curMatch;
@@ -1141,6 +1210,7 @@ lzr lz77_encode(byte* dat, size_t sz, size_t winBits) {
     lz_inst ls = {
         .window = dat,   //lz77 window ptr
         .winStart  = dat, //where the window begins
+        .winMax = dat+sz,
         .winBits = winBits,     //window bits (2 ^ b = s), where b is win bits and s is window size in bytes
         .winSz = (size_t) 1 << winBits,  //size of window in bytes
         .winPos = 0
@@ -1161,10 +1231,13 @@ lzr lz77_encode(byte* dat, size_t sz, size_t winBits) {
 
     //
     byte* enc_byte = dat, * end = dat + sz;
+    size_t cEncodeDebug = 0;
 
     //allocate char count container thing
     res.charCounts = new size_t[lzAlphaSz];
     ZeroMem(res.charCounts, lzAlphaSz);
+
+    i32 bytesLeft = sz;
 
     //main encode loop
     do {
@@ -1178,9 +1251,11 @@ lzr lz77_encode(byte* dat, size_t sz, size_t winBits) {
         
         if (last) {
             //then back ref
-            _match m = longest_match(last, &ls);
+            _match m = longest_match(last, &ls, {
+                .maxLength = min(lookAhead, bytesLeft)
+                });
 
-            std::cout << "Longest Match: " << m.matchSz << std::endl;
+            //std::cout << "Longest Match: " << m.matchSz << std::endl;
 
             if (!m.node) {
                 std::cout << "Bro how tf did you mess up this badly ;-;-;-;" << std::endl;
@@ -1200,8 +1275,8 @@ lzr lz77_encode(byte* dat, size_t sz, size_t winBits) {
                 dist = (size_t)(ls.window - m.node->val.ptr), //get distance
                 distIdx = lz77_get_dist_idx(dist); //get distance base
 
-            std::cout << "Back Ref: <" << dist << "," << m.matchSz << ">" << std::endl;
-            std::cout << "Len Idx: " << lenIdx << std::endl;
+            //std::cout << "Back Ref: <" << dist << "," << m.matchSz << ">" << std::endl;
+            //std::cout << "Len Idx: " << lenIdx << std::endl;
 
             //make sure things are valid
             if (distIdx >= dsb_len || distIdx < 0) {
@@ -1223,7 +1298,7 @@ lzr lz77_encode(byte* dat, size_t sz, size_t winBits) {
             const i32 distExtra = dist - DistanceBase[min(distIdx, dsb_len)],
                          lenExtra = m.matchSz - LengthBase[min(lenIdx, lnb_len)];
 
-            std::cout << "Len Extra: " << lenExtra << " " << LengthBase[lenIdx] << std::endl;
+            //std::cout << "Len Extra: " << lenExtra << " " << LengthBase[lenIdx] << std::endl;
 
             distCharCount[distIdx]++; //increase char count yk
 
@@ -1253,7 +1328,7 @@ lzr lz77_encode(byte* dat, size_t sz, size_t winBits) {
             enc_dat.push_back(distExtra);
             enc_dat.push_back(lenExtra);
 
-            std::cout << "Back: " << (257 + lenIdx) << " " << ((distIdx << 16) & 0xff | (distExtra & 0xffff)) << " " << lenExtra << std::endl;
+            //std::cout << "Back: " << (257 + lenIdx) << " " << ((distIdx << 16) & 0xff | (distExtra & 0xffff)) << " " << lenExtra << std::endl;
         }
         else {
 
@@ -1263,20 +1338,26 @@ lzr lz77_encode(byte* dat, size_t sz, size_t winBits) {
             enc_dat.push_back(*ls.window);
             res.charCounts[*ls.window]++;
 
-            std::cout << "Default char encode: " << (u32)*ls.window << " Char Count: " << res.charCounts[*ls.window] << std::endl;
+            //std::cout << "Default char encode: " << (u32)*ls.window << " Char Count: " << res.charCounts[*ls.window] << std::endl;
         }
 
         //window shifting
         _WIN_SHIFT(ls, curByte, winShift);
+        bytesLeft -= winShift;
 
         if (ls.winPos >= winMem) {
             hashTable.clear();
             ls.winPos = 0;
         }
+
+        if (cEncodeDebug++ % 0xffff == 0)
+            std::cout << "Encoding: " << cEncodeDebug << " / " << sz << "\n";
     } while (enc_byte < end);
 
+    hashTable.free();
+
     //construct distance tree and other stuff we need
-    res.distTree = GenCanonicalTreeInfFromCounts(distCharCount, dsb_len);
+    res.distTree = GenCanonicalTreeInfFromCounts(distCharCount, dsb_len, DISTANCE_MAX_CODE_LENGTH);
     
     if (!res.distTree.t || !res.distTree.bitLens)
         std::cout << "Something went wrong when generating distance tree!" << std::endl;
@@ -1289,15 +1370,15 @@ lzr lz77_encode(byte* dat, size_t sz, size_t winBits) {
     //enc_dat.copyToBuffer(res.encDat, res.encSz);
     memcpy(res.encDat, enc_dat.data(), res.encSz);
 
-    std::cout << "------- lz77 Data --------" << std::endl;
+    /*std::cout << "------- lz77 Data --------" << std::endl;
 
     /*for (i32 i = 0; i < res.encSz * 3; i++)
-        std::cout << (u32)(((byte*)enc_dat.dat)[i]) << " ";*/
+        std::cout << (u32)(((byte*)enc_dat.dat)[i]) << " ";
 
     foreach_ptr(byte, cur, res.encDat, res.encSz)
         std::cout << (u32)(*cur) << " ";
     
-    std::cout << std::endl << "-------------------" << std::endl;
+    std::cout << std::endl << "-------------------" << std::endl;*/
 
     //mem management and return
     _safe_free_a(distCharCount);
@@ -1345,7 +1426,7 @@ struct _codeLenInf {
 
 //ccLens - combined code lengths
 //nc - n_codes -> number of codes in combied code lengths
-_codeLenInf _tree_rle_encode(u32* ccLens, size_t nc, const size_t codeLengthAlphaSz) {
+_codeLenInf _tree_rle_encode(u32* ccLens, size_t nc, const size_t codeLengthAlphaSz, const size_t bitLenMax) {
     std::vector<u32> e_dat;
 
     if (!ccLens || nc <= 0)
@@ -1367,6 +1448,13 @@ _codeLenInf _tree_rle_encode(u32* ccLens, size_t nc, const size_t codeLengthAlph
         size_t mSz = 0;
         const size_t maxMatch = (!*cur) ? (RLE_Z2_MASK + RLE_Z2_BASE) : (RLE_L_MASK + RLE_L_BASE);
         pMatch = *cur;
+
+        //make sure bitlength is valid
+        if (*cur > bitLenMax) {
+            std::cout << "RLE Encode Error! Invalid bitlength: " << *cur << " | Max is: " << bitLenMax << std::endl;
+            _safe_free_a(clCounts);
+            return {};
+        }
 
         while (cur < end && *cur == pMatch && mSz < maxMatch) {
             cur++;
@@ -1469,7 +1557,7 @@ void _stream_tree_write(BitStream *stream, HuffmanTreeInfo * litTree, HuffmanTre
     //next create the code length tree
     const size_t codeLengthAlphaSz = 19; //number of codes for code length alphabet
 
-    _codeLenInf clRleInf = _tree_rle_encode(combinedBl, ncbl, codeLengthAlphaSz); //rle encoding
+    _codeLenInf clRleInf = _tree_rle_encode(combinedBl, ncbl, codeLengthAlphaSz, LITERAL_MAX_CODE_LENGTH); //rle encoding
 
     if (!clRleInf.rle_dat) {
         std::cout << "Error failed to rle encode!" << std::endl;
@@ -1506,7 +1594,8 @@ void _stream_tree_write(BitStream *stream, HuffmanTreeInfo * litTree, HuffmanTre
     std::cout << std::endl;
 
     //make the code length tree
-    HuffmanTreeInfo clTree = GenCanonicalTreeInfFromCounts(clRleInf.cl_counts, codeLengthAlphaSz);
+    const i32 CL_MAX_CODE_LENGTH = 7; //0b111 (since stored as 3 bits)
+    HuffmanTreeInfo clTree = GenCanonicalTreeInfFromCounts(clRleInf.cl_counts, codeLengthAlphaSz, CL_MAX_CODE_LENGTH);
 
     std::cout << "CL Tree Stuff" << std::endl;
     foreach_ptr(u32, bl, clTree.bitLens, clTree.alphaSz)
@@ -1525,12 +1614,23 @@ void _stream_tree_write(BitStream *stream, HuffmanTreeInfo * litTree, HuffmanTre
     }
 
     //write the code length tree bit length data to the stream
-    for (i32 i = 0; i < codeLengthAlphaSz; i++)
-        WriteVBitsToStream(
-            *stream,
-            clTree.bitLens[CodeLengthCodesOrder[i]],
-            3
-        );
+    for (i32 i = 0; i < codeLengthAlphaSz; i++) {
+        const size_t clbl = clTree.bitLens[CodeLengthCodesOrder[i]];
+
+        if (clbl > CL_MAX_CODE_LENGTH) {
+            std::cout << "Error cl code length too long!" << std::endl;
+            _safe_free_a(combinedBl);
+            _safe_free_a(clRleInf.cl_counts);
+            _safe_free_a(clRleInf.rle_dat);
+            return;
+        } 
+        else
+            WriteVBitsToStream(
+                *stream,
+                clTree.bitLens[CodeLengthCodesOrder[i]],
+                3
+            );
+    }
 
     //encode the literal and distance tree
     const size_t __rESz = sizeof(u32); //size of 1 rle encoded element
@@ -1545,10 +1645,10 @@ void _stream_tree_write(BitStream *stream, HuffmanTreeInfo * litTree, HuffmanTre
         u32 sym = *cur;
         size_t code_len = clTree.bitLens[sym];
 
-        std::cout << sym << " " << (bitReverse(
+        /*std::cout << sym << " " << (bitReverse(
             EncodeSymbol(sym, clTree.t),
             code_len
-        )) << " | ";
+        )) << " | ";*/
 
         WriteVBitsToStream(
             *stream,
@@ -1619,7 +1719,7 @@ void _lzr_stream_write(BitStream* stream, lzr* l, u32* checksum, bool writeCapBy
     //generate encode tree
     if (writeCapByte && l->charCountSz >= 256)
         l->charCounts[256]++;
-    HuffmanTreeInfo enc_tree_inf = GenCanonicalTreeInfFromCounts((size_t*)l->charCounts, l->charCountSz);
+    HuffmanTreeInfo enc_tree_inf = GenCanonicalTreeInfFromCounts((size_t*)l->charCounts, l->charCountSz, LITERAL_MAX_CODE_LENGTH);
 
     if (!enc_tree_inf.bitLens)
         return;
@@ -1637,7 +1737,7 @@ void _lzr_stream_write(BitStream* stream, lzr* l, u32* checksum, bool writeCapBy
     for (i32 i = 0; i < dat_buf.length; i++) {
         u32 sym = dat_buf[i];
 
-        std::cout << "Encoding Symbol: " << sym << std::endl;
+        //std::cout << "Encoding Symbol: " << sym << std::endl;
 
         adler32_compute_next(*checksum, sym);
 
@@ -1654,17 +1754,18 @@ void _lzr_stream_write(BitStream* stream, lzr* l, u32* checksum, bool writeCapBy
             size_t
                 distIdx = dat_buf[++i] & 0xff,
                 distExtra = dat_buf[++i] & 0xffff,
-                lenExtra = dat_buf[++i] & 0xffff;
+                lenExtra = dat_buf[++i] & 0xffff,
+                lenIdx = sym - 257;
 
             size_t distBl = l->distTree.bitLens[distIdx];
 
             //write the back reference
             //TODO: length encoding is off by one for some reason
             WriteVBitsToStream(*stream, bitReverse(EncodeSymbol(sym & 0xfff, enc_tree_inf.t),bl),bl); //length base
-            WriteVBitsToStream(*stream, lenExtra, LengthExtraBits[sym-257]); //length extra
-            std::cout << "Length Encode: " << (sym - 257) << " " << (LengthExtraBits[sym - 257]) << " " << (LengthBase[sym-257]+lenExtra) << std::endl;
+            WriteVBitsToStream(*stream, lenExtra, LengthExtraBits[lenIdx]); //length extra
+            //std::cout << "Length Encode: " << (sym - 257) << " " << (LengthExtraBits[lenIdx]) << " " << (LengthBase[lenIdx]+lenExtra) << " " << lenExtra << std::endl;
             WriteVBitsToStream(*stream, bitReverse(EncodeSymbol(distIdx, l->distTree.t), distBl), distBl); //distance base
-            std::cout << "Distance Encode: " << distIdx << std::endl;
+            //std::cout << "Distance Encode: " << distIdx << std::endl;
             WriteVBitsToStream(*stream, distExtra, DistanceExtraBits[distIdx]); //distance extra
         } else
             WriteVBitsToStream(
@@ -1875,7 +1976,7 @@ huffman_node** _decode_trees(BitStream* stream) {
     foreach_ptr_m(u32, curBl, combinedBitLens, nTotalCodes) {
         u32 sym = DecodeSymbol(stream, clTree);
 
-        std::cout << sym << " ";
+        //std::cout << sym << " ";
 
         if (sym <= 15)
             *curBl++ = sym;
@@ -1976,10 +2077,15 @@ void _inflate_block_generic(InflateBlock* block, BitStream* stream, huffman_node
 
     std::vector<byte> dec_data;
 
+    size_t __dbgSz = 0;
+
     for (;;) {
         u32 sym = DecodeSymbol(stream, litTree);
+        
+        //std::cout << "Decoded Symbol: " << sym << std::endl;
 
-        std::cout << "Decoded Symbol: " << sym << std::endl;
+        if (__dbgSz++ % 0xffff == 0)
+            std::cout << "Decoded: " << __dbgSz << " symbols" << std::endl;
 
         if (sym <= 255)
             dec_data.push_back((byte)sym & 0xff);
@@ -1994,12 +2100,12 @@ void _inflate_block_generic(InflateBlock* block, BitStream* stream, huffman_node
             u32 lenExtraBits = LengthExtraBits[lenIdx],
                 len = LengthBase[lenIdx] + stream->readNBits(lenExtraBits);
 
-            std::cout << "Length Decode: " << lenIdx << " " << lenExtraBits << " " << len << std::endl;
+            //std::cout << "Length Decode: " << lenIdx << " " << lenExtraBits << " " << len << " " << (len - LengthBase[lenIdx]) << std::endl;
 
             //get distance
             i32 distIdx = DecodeSymbol(stream, distTree);
 
-            std::cout << "Distance Decode: " << distIdx << std::endl;
+            //std::cout << "Distance Decode: " << distIdx << std::endl;
 
             u32 distExtraBits = DistanceExtraBits[distIdx],
                 dist = DistanceBase[distIdx] + stream->readNBits(distExtraBits);
@@ -2205,3 +2311,4 @@ balloon_result Balloon::Inflate(byte* data, size_t sz) {
 //line 1231, yeah that comment above is way off rn, but lets so how off this one gets :3
 //line 1561, bruh how is the comment above off by 300 lines after 1 day ;-;
 //line 1939, it hasn't even been a day since the last comment and this comment is now on line 1939!!! HOW???? 400-700 LINES IN 1 DAY :O
+//line 2314, yep not even close to done and im already in the mid 2,000s, dang
