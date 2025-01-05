@@ -753,24 +753,45 @@ class BobsDiganosis {
  * 
  */
 
-u32* BobsBitLengthRepairServices(u32 *bl, size_t alphaSz, const i32 maxBl) {
-    if (!bl || alphaSz == 0 || maxBl <= 0) return nullptr;
+bool __cmp(u32* a, u32* b) {
+    return *a > *b;
+}
+
+u32* BobsBitLengthRepairServices(u32 *bitLens, size_t alphaSz, const i32 maxBl) {
+    if (!bitLens || alphaSz == 0 || maxBl <= 0) return nullptr;
 
     //first sort the bit lengths into 2 vectors
     std::vector<u32*> good_bl, bad_bl;
 
-    foreach_ptr(u32, B, bl, alphaSz)
+    foreach_ptr(u32, B, bitLens, alphaSz)
         if (*B > maxBl)
             bad_bl.push_back(B);
-        else
+        else if (*B < maxBl)
             good_bl.push_back(B);
 
     //then order the good vector by length
+    std::sort(good_bl.begin(), good_bl.end(), __cmp);
+    size_t g = 0;
+    bool end = false;
 
     //next do the thing where you go bad bit length by bad bit length and subtract from it and add to the first element
     //in good until the bad bit length is good. 
-    for (auto* bl : good_bl) {
+    for (auto* bl : bad_bl) {
+        std::cout << "Bob Before: " << *bl << std::endl;
+        if (end)
+            break;
+        while (*bl > maxBl) {
+            (*bl)--;
 
+            if (++(*good_bl[g]) >= maxBl - 1)
+                g++;
+
+            if (g >= good_bl.size()) {
+                end = true;
+                break;
+            }
+        }
+        std::cout << "Bob After: " << *bl << std::endl;
     }
 
     //finally verify that a give bit length can canonically exist
@@ -788,6 +809,8 @@ u32* BobsBitLengthRepairServices(u32 *bl, size_t alphaSz, const i32 maxBl) {
 
     //this function is still important but consider using a thing where vals are exponentially increased as they
     //get closer and closer to the max
+
+    return bitLens;
 }
 
 /*
@@ -866,20 +889,15 @@ huffman_node* GenCanonicalTreeFromCounts(size_t* counts, size_t alphaSz, i32 max
         //as we construct tree keep track of bitlengths
         _bl_inc(bitLens, newNode, alphaSz);
 
-        //TODO: uh figure out if this even works
-        i32 l2bl = floor(log2(tNodes.size())) + 1;
-
-        //max length thingy for le tree
-        if (maxLen >= 0 && (newNode->depth + l2bl) >= maxLen) newNode->cmpCount = INT_MAX;
-
-        if (maxLen >= 0 && bitLens[newNode->val] > maxLen)
+        if (maxLen >= 0 && newNode->depth > maxLen)
             callBob = true; //oh crap somethings wrong! must call Bob!
     }
 
     TreeFree(root); //delete temporary tree
 
     if (callBob) {
-        //bitLens = BobsBitLengthRepairServices(bitLens, alphaSz, maxLen);
+        
+        bitLens = BobsBitLengthRepairServices(bitLens, alphaSz, maxLen);
 
         if (!bitLens) {
             std::cout << "Uh oh, bob couldn't repair teh bit lengths so I guess I need to error out!" << std::endl;
@@ -932,6 +950,8 @@ HuffmanTreeInfo GenCanonicalTreeInfFromCounts(size_t* counts, size_t alphaSz, i3
     };
     ZeroMem(t_inf.bitLens, alphaSz);
 
+    bool callBob = false;
+
     //construct tree
     while (tNodes.size() > 1) {
         huffman_node* newNode = new huffman_node;
@@ -949,13 +969,25 @@ HuffmanTreeInfo GenCanonicalTreeInfFromCounts(size_t* counts, size_t alphaSz, i3
         _bl_inc(t_inf.bitLens, newNode, alphaSz);
 
         //TODO: uh figure out if this even works
-        i32 l2bl = floor(log2(tNodes.size())) + 1;
+        //i32 l2bl = floor(log2(tNodes.size())) + 1;
 
         //max length thingy for le tree
-        if (maxLen >= 0 && (newNode->depth + l2bl) >= maxLen) newNode->cmpCount = INT_MAX;
+        //if (maxLen >= 0 && (newNode->depth + l2bl) >= maxLen) newNode->cmpCount = INT_MAX;
+        std::cout << "BL CMP: " << t_inf.bitLens[newNode->val] << " " << maxLen << std::endl;
+        if (maxLen >= 0 && newNode->depth > maxLen)
+            callBob = true; //oh crap somethings wrong! must call Bob!
     }
 
     TreeFree(root); //delete temporary tree
+
+    if (callBob) {
+        t_inf.bitLens = BobsBitLengthRepairServices(t_inf.bitLens, alphaSz, maxLen);
+
+        if (!t_inf.bitLens) {
+            std::cout << "Uh oh, bob couldn't repair teh bit lengths so I guess I need to error out!" << std::endl;
+            return t_inf;
+        }
+    }
 
     //generate canonical tree
     t_inf.t = BitLengthsToHTree(t_inf.bitLens, alphaSz, alphaSz);
