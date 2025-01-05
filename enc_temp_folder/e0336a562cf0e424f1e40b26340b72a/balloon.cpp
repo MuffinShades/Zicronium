@@ -790,20 +790,6 @@ u32* BobsBitLengthRepairServices(u32 *bl, size_t alphaSz, const i32 maxBl) {
     //get closer and closer to the max
 }
 
-/*
-
-0
-
-10
-
-110
-
-111
-
-
-*/
-//const size_t bob_magic = {1, 1, 2, };
-
 /**
  * 
  * GenCanonicalTreeFromCounts
