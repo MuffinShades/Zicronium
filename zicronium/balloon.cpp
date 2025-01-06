@@ -38,6 +38,9 @@
 
  figure out why inflate ends on a different byte then deflate when using blocks
   -fixed check sum was being written at the end of a block not the whole file
+
+  make deflate more modular since there are lots of inflate and deflate functions
+    -> functions for reading and writing zlib and chunk headerS
  */
 
 #define BALLOON_DEBUG
@@ -2243,6 +2246,72 @@ balloon_result Balloon::Inflate(byte* data, size_t sz) {
     }
 
     return res;
+}
+
+enum file_stream_type {
+    file_stream_in,
+    file_stream_out
+};
+
+template<file_stream_type _sty> class BinFileStream {
+    std::fstream _f;
+    bool iok = false;
+public:
+    BinFileStream() {
+    }
+    BinFileStream(std::string src) {
+        if (src.length() <= 0)
+            return;
+
+        this->_f = std::fstream(src, (_sty == file_stream_in ? std::ios::in : std::ios::out) | std::ios::binary);
+
+        this->iok = _f.good();
+    }
+    bool ok() {
+        return this->iok;
+    }
+};
+
+struct FileChunk {
+    byte* dat;
+    size_t sz;
+};
+
+class DualStream {
+private:
+    BinFileStream<file_stream_in> in;
+    BinFileStream<file_stream_out> out;
+    bool iok = false;
+public:
+    DualStream(std::string in_src, std::string out_src) {
+        if (in_src.length() <= 0 || out_src.length() <= 0) return;
+
+        this->in = BinFileStream<file_stream_in>(in_src);
+        this->out = BinFileStream<file_stream_out>(out_src);
+
+        this->iok = this->in.ok() && this->out.ok();
+    }
+    FileChunk reqChunk(size_t sz) {
+        if (sz <= 0)
+            return {};
+
+    }
+    bool ok() {
+        return this->iok;
+    }
+    bool writeChunk(FileChunk chunk) {
+        if (!chunk.dat || chunk.sz <= 0)
+            return false;
+    }
+};
+
+bool DeflateFileToFile(std::string in_src, std::string out_src, u32 compressionLevel = 2, const size_t winBits = 0xf) {
+    if (in_src.length() <= 0 || out_src.length() <= 0) return false;
+
+    DualStream f_stream = DualStream(in_src, out_src);
+
+    if (!f_stream.ok())
+        return false;
 }
 
 //line 861, lets see how off this comment gets
