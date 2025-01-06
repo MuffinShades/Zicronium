@@ -52,7 +52,7 @@ i32 main() {
 	//balloon_result inflateTest = Balloon::Inflate(testRes.data, testRes.sz);
 
 	//std::cout << "Inflate Size: " << inflateTest.sz << std::endl;
-	/*
+	
 	file testFile = FileWrite::readFromBin("C:\\TestStuff\\zlib2.txt");
 	balloon_result testFileDeflate = Balloon::Deflate(testFile.dat, testFile.len);
 
@@ -66,7 +66,7 @@ i32 main() {
 	std::cout << " testFile Inflate Size: " << testFileInflate.sz << std::endl;
 	std::cout << "inflate checksum: " << testFileInflate.checksum << std::endl;
 
-	FileWrite::writeToBin("C:\\TestStuff\\zlib2_inflate.txt", testFileInflate.data, testFileInflate.sz);*/
+	FileWrite::writeToBin("C:\\TestStuff\\zlib2_inflate.txt", testFileInflate.data, testFileInflate.sz);
 
 	
 	//TODO: make sure when something goes wrong everything errors out
@@ -75,20 +75,20 @@ i32 main() {
 	//possible solution: when generating the trees if a bitlengths greater than the max is noticed then after
 	//tree generation call a fixer function that basically takes all bitlengths, orders by lengths, and adds to
 	//the longer codes until all bit lengths are uniform and the sum of all bitlengths is the same
-	file testFile = FileWrite::readFromBin("C:\\TestStuff\\wood.wld");
-	balloon_result testFileDeflate = Balloon::Deflate(testFile.dat, testFile.len);
+	file testFile2 = FileWrite::readFromBin("C:\\TestStuff\\wood.wld");
+	balloon_result testFileDeflate2 = Balloon::Deflate(testFile2.dat, testFile2.len);
 
-	std::cout << "testFile Deflate Size: " << testFileDeflate.sz << std::endl;
-	std::cout << "checksum: " << testFileDeflate.checksum << std::endl;
+	std::cout << "testFile Deflate Size: " << testFileDeflate2.sz << std::endl;
+	std::cout << "checksum: " << testFileDeflate2.checksum << std::endl;
 
-	FileWrite::writeToBin("C:\\TestStuff\\wood.bal", testFileDeflate.data, testFileDeflate.sz);
+	FileWrite::writeToBin("C:\\TestStuff\\wood.bal", testFileDeflate2.data, testFileDeflate2.sz);
 
-	balloon_result testFileInflate = Balloon::Inflate(testFileDeflate.data, testFileDeflate.sz);
+	balloon_result testFileInflate2 = Balloon::Inflate(testFileDeflate2.data, testFileDeflate2.sz);
 
-	std::cout << " testFile Inflate Size: " << testFileInflate.sz << std::endl;
-	std::cout << "inflate checksum: " << testFileInflate.checksum << std::endl;
+	std::cout << " testFile Inflate Size: " << testFileInflate2.sz << std::endl;
+	std::cout << "inflate checksum: " << testFileInflate2.checksum << std::endl;
 
-	FileWrite::writeToBin("C:\\TestStuff\\wood2.wld", testFileInflate.data, testFileInflate.sz);
+	FileWrite::writeToBin("C:\\TestStuff\\wood2.wld", testFileInflate2.data, testFileInflate2.sz);
 	
 	
 

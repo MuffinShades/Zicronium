@@ -34,6 +34,10 @@
  ating the output buffer and setting each value after calling
  stream->readByte();
 
+ Current TODO:
+
+ figure out why inflate ends on a different byte then deflate when using blocks
+  -fixed check sum was being written at the end of a block not the whole file
  */
 
 #define BALLOON_DEBUG
@@ -1710,7 +1714,7 @@ void _lzr_stream_write(BitStream* stream, lzr* l, u32* checksum, bool writeCapBy
         WriteVBitsToStream(*stream, bitReverse(EncodeSymbol(256, enc_tree_inf.t), bl), bl);
     }
 
-    stream->writeValue(*checksum);
+    //stream->writeValue(*checksum); //ok don't write the checksum during blocks
     _safe_free_a(enc_tree_inf.bitLens);
     TreeFree(enc_tree_inf.t);
 }
@@ -1737,12 +1741,14 @@ enum deflate_block_type {
  *
  */
 i32 WriteDeflateBlockToStream(BitStream* stream, bin* block_data, const size_t winBits, const i32 level, u32* checksum, bool finalBlock = false) {
-    deflate_block_type bType = level > 0 ? dfb_dynamic : dfb_static;
+    deflate_block_type bType = level > 0 ? dfb_dynamic : dfb_none;
 
     //write some info
     stream->writeBit(finalBlock & 0b01);
     stream->writeBit((bType & 0b01));
     stream->writeBit((bType & 0b10) >> 1);
+
+    std::cout << "Block Write: " << block_data->sz << std::endl;
 
     //compresss
     switch (level) {
@@ -1854,18 +1860,22 @@ balloon_result Balloon::Deflate(byte* data, size_t sz, u32 compressionLevel, con
 
     while (bytesLeft > 0) {
         size_t blockSz = min(bytesLeft, BLOCK_SIZE_MAX);
-
+        
         bin block_dat = {
             .dat = blockStart,
             .sz = blockSz
         };
 
-        if (WriteDeflateBlockToStream(&rStream, &block_dat, winBits, compressionLevel, &checksum, bytesLeft - BLOCK_SIZE_MAX > 0))
+        if (WriteDeflateBlockToStream(&rStream, &block_dat, winBits, compressionLevel, &checksum, bytesLeft - BLOCK_SIZE_MAX <= 0))
             std::cout << "Error something went wrong when writing deflate block!" << std::endl;
+
+        std::cout << blockSz << " " << bytesLeft << " " << (bytesLeft - BLOCK_SIZE_MAX <= 0) << " | " << rStream.rPos << " " << rStream.rBit << std::endl;
         
         blockStart += blockSz;
         bytesLeft -= blockSz;
     }
+
+    rStream.writeValue(checksum);
 
     //construct result
     balloon_result res = {
