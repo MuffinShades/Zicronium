@@ -132,6 +132,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="balloon.cpp" />
+    <ClCompile Include="balloon_dbg.cpp" />
     <ClCompile Include="ByteStream.cpp" />
     <ClCompile Include="filewrite.cpp" />
     <ClCompile Include="linked_map.cpp" />
