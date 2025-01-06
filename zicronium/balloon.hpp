@@ -79,6 +79,7 @@ public:
 	MSFL_EXP void clip();
 	//allocation function
 	MSFL_EXP void calloc(size_t sz);
+	void writeBytes(byte* dat, size_t nBytes);
 };
 
 struct balloon_result {

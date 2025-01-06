@@ -70,9 +70,9 @@ struct bin {
 #define LZ77_MIN_MATCH 0x003 // min match size for back reference
 #define LZ77_MAX_MATCH 0x102
 
-//make literal and distance code lengths
-#define DISTANCE_MAX_CODE_LENGTH 15
-#define LITERAL_MAX_CODE_LENGTH 15
+#define MAX_CODE_LENGTH 15
+
+#define BLOCK_SIZE_MAX 0xffff //deflate wants a max block size of 64kb, idk why
 
 //from zlib on github
 const int compression_table_old[10][5] = {
@@ -340,6 +340,15 @@ void BitStream::allocNewChunk() {
     memcpy(tBytes, this->bytes, this->sz);
     delete[] this->bytes;
     this->bytes = tBytes;
+}
+
+void BitStream::writeBytes(byte* dat, size_t nBytes) {
+    if (!dat || nBytes <= 0) return;
+    const size_t nLen = this->sz + nBytes;
+    while (this->asz < nLen)
+        this->allocNewChunk();
+    memcpy(this->bytes + this->rPos, dat, nBytes);
+    this->sz = nLen;
 }
 
 void BitStream::clip() {
@@ -963,8 +972,8 @@ HuffmanTreeInfo GenCanonicalTreeInfFromCounts(size_t* counts, size_t alphaSz, i3
  *
  */
 
-u32* GetCharacterCounts(byte* data, size_t sz) {
-    u32* rCounts = new u32[0xff];
+size_t* GetCharacterCounts(byte* data, size_t sz) {
+    size_t* rCounts = new size_t[0xff];
     ZeroMem(rCounts, 0xff);
     byte* d_ptr = data;
     while (sz--) rCounts[*d_ptr++]++;
@@ -972,8 +981,8 @@ u32* GetCharacterCounts(byte* data, size_t sz) {
 };
 
 //same thing as prev function just for u32* instead of byte*
-u32* GetCharacterCounts(u32* data, size_t sz) {
-    u32* rCounts = new u32[0xff];
+size_t* GetCharacterCounts(u32* data, size_t sz) {
+    size_t* rCounts = new size_t[0xff];
     ZeroMem(rCounts, 0xff);
     u32* d_ptr = data;
     while (sz--) rCounts[*d_ptr++]++;
@@ -1340,7 +1349,7 @@ lzr lz77_encode(byte* dat, size_t sz, size_t winBits) {
     hashTable.free();
 
     //construct distance tree and other stuff we need
-    res.distTree = GenCanonicalTreeInfFromCounts(distCharCount, dsb_len, DISTANCE_MAX_CODE_LENGTH);
+    res.distTree = GenCanonicalTreeInfFromCounts(distCharCount, dsb_len, MAX_CODE_LENGTH);
 
     if (!res.distTree.t || !res.distTree.bitLens)
         std::cout << "Something went wrong when generating distance tree!" << std::endl;
@@ -1505,7 +1514,7 @@ void _stream_tree_write(BitStream* stream, HuffmanTreeInfo* litTree, HuffmanTree
     //next create the code length tree
     const size_t codeLengthAlphaSz = 19; //number of codes for code length alphabet
 
-    _codeLenInf clRleInf = _tree_rle_encode(combinedBl, ncbl, codeLengthAlphaSz, LITERAL_MAX_CODE_LENGTH); //rle encoding
+    _codeLenInf clRleInf = _tree_rle_encode(combinedBl, ncbl, codeLengthAlphaSz, MAX_CODE_LENGTH); //rle encoding
 
     if (!clRleInf.rle_dat) {
         std::cout << "Error failed to rle encode!" << std::endl;
@@ -1646,7 +1655,7 @@ void _lzr_stream_write(BitStream* stream, lzr* l, u32* checksum, bool writeCapBy
     //generate encode tree
     if (writeCapByte && l->charCountSz >= 256)
         l->charCounts[256]++;
-    HuffmanTreeInfo enc_tree_inf = GenCanonicalTreeInfFromCounts((size_t*)l->charCounts, l->charCountSz, LITERAL_MAX_CODE_LENGTH);
+    HuffmanTreeInfo enc_tree_inf = GenCanonicalTreeInfFromCounts((size_t*)l->charCounts, l->charCountSz, MAX_CODE_LENGTH);
 
     if (!enc_tree_inf.bitLens)
         return;
@@ -1738,14 +1747,49 @@ i32 WriteDeflateBlockToStream(BitStream* stream, bin* block_data, const size_t w
     //compresss
     switch (level) {
 
-        //no compression so we just write stuff
+    //no compression so we just write stuff
     case 0: {
-        std::cout << "TODO: this part ;3" << std::endl;
+        //std::cout << "TODO: this part ;3" << std::endl;
+        u16 blckSz = block_data->sz, nlen = 0;
+        stream->writeValue(blckSz);
+        stream->writeValue(nlen);
+
+        stream->writeBytes(block_data->dat, block_data->sz);
+        
         break;
     }
 
-          //TODO: huffman and other levels from 0-10
-    case 1: break;
+    //TODO: other levels from 0-10
+    case 1: {
+        lzr mimic = {
+            .charCountSz = 0xff
+        };
+        mimic.charCounts = GetCharacterCounts(block_data->dat, block_data->sz);
+
+        //mimic a distance tree
+        u32* distBl = new u32[30];
+        ZeroMem(distBl, 30);
+
+        mimic.distTree = {
+            .t = nullptr,
+            .bitLens = distBl,
+            .alphaSz = 30
+        };
+
+
+        //set data
+        mimic.encDat = block_data->dat;
+        mimic.encSz = block_data->sz;
+
+        //set some more constants
+        mimic.winBits = 15;
+        mimic.sz_per_ele = 1;
+        
+        //encode to stream
+        _lzr_stream_write(stream, &mimic, checksum, true); //reason for true is stated below
+        lzr_free(&mimic);
+        break;
+    }
 
         //max compressoin
     case 2: {
@@ -1803,15 +1847,25 @@ balloon_result Balloon::Deflate(byte* data, size_t sz, u32 compressionLevel, con
     //TODO: multiple blocks of data
     // do the above TODO when adding multi threading
 
-    bin dat = {
-        .dat = data,
-        .sz = sz
-    };
-
     u32 checksum = 0;
 
-    if (WriteDeflateBlockToStream(&rStream, &dat, winBits, compressionLevel, &checksum, true))
-        std::cout << "Error something went wrong when writing deflate block!" << std::endl;
+    i64 bytesLeft = sz;
+    byte* blockStart = data;
+
+    while (bytesLeft > 0) {
+        size_t blockSz = min(bytesLeft, BLOCK_SIZE_MAX);
+
+        bin block_dat = {
+            .dat = blockStart,
+            .sz = blockSz
+        };
+
+        if (WriteDeflateBlockToStream(&rStream, &block_dat, winBits, compressionLevel, &checksum, bytesLeft - BLOCK_SIZE_MAX > 0))
+            std::cout << "Error something went wrong when writing deflate block!" << std::endl;
+        
+        blockStart += blockSz;
+        bytesLeft -= blockSz;
+    }
 
     //construct result
     balloon_result res = {
