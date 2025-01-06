@@ -1092,7 +1092,7 @@ struct lzr {
  */
 struct lz_inst {
     byte* window = nullptr, *winStart = nullptr, *winMax = nullptr;
-    size_t winBits = 0, winSz = 0, winPos = 0;
+    size_t winBits = 0, winSz = 0, winPos = 0, lookAheadSz = 0;
 };
 
 struct _match {
@@ -1113,14 +1113,13 @@ _match longest_match(hash_node<_lz_win_ref>* firstMatch, lz_inst* ls, match_sett
     hash_node<_lz_win_ref>* curMatch = firstMatch, *bestMatch = firstMatch;
     size_t bestSz = 0;
 
-    byte *cur = ls->window, *comp = curMatch->val.ptr, *_winEnd = ls->window + ls->winSz, *_trueWinEnd = ls->winMax;
-
     //get le best match
     while (curMatch) {
         size_t mSz = 0;
         //do le matching
+        byte* cur = ls->window, * comp = curMatch->val.ptr, * _winEnd = ls->window + ls->lookAheadSz, * _trueWinEnd = ls->winMax;
         //std::cout << cur << " " << comp << std::endl;
-        do {} while (cur < _winEnd && comp < _trueWinEnd && *cur++ == *comp++ && ++mSz < ms.maxLength);
+        do {} while (cur < _winEnd && comp < _winEnd && *cur++ == *comp++ && ++mSz < ms.maxLength);
 
         if (mSz > bestSz) {
             bestMatch = curMatch;
@@ -1275,7 +1274,8 @@ lzr lz77_encode(byte* dat, size_t sz, size_t winBits) {
         .winMax = dat+sz,
         .winBits = winBits,     //window bits (2 ^ b = s), where b is win bits and s is window size in bytes
         .winSz = (size_t) 1 << winBits,  //size of window in bytes
-        .winPos = 0
+        .winPos = 0,
+        .lookAheadSz = lookAhead
     };
 
     //hash table
@@ -1315,9 +1315,7 @@ lzr lz77_encode(byte* dat, size_t sz, size_t winBits) {
             //then back ref
             _match m = longest_match(last, &ls, {
                 .maxLength = min(lookAhead, bytesLeft)
-                });
-
-            //std::cout << "Longest Match: " << m.matchSz << std::endl;
+            });
 
             if (!m.node) {
                 std::cout << "Bro how tf did you mess up this badly ;-;-;-;" << std::endl;
@@ -1368,9 +1366,9 @@ lzr lz77_encode(byte* dat, size_t sz, size_t winBits) {
             winShift = m.matchSz;
 
             //add back ref val
-            enc_dat.push_back(257 + lenIdx);
-
-            res.charCounts[257 + lenIdx]++;
+            const u16 sym = 257 + lenIdx;
+            enc_dat.push_back(sym);
+            res.charCounts[sym]++;
 
             /*
             (Old)
@@ -1389,6 +1387,8 @@ lzr lz77_encode(byte* dat, size_t sz, size_t winBits) {
             enc_dat.push_back(distIdx);
             enc_dat.push_back(distExtra);
             enc_dat.push_back(lenExtra);
+
+            std::cout << "Longest Match: " << m.matchSz << " " << ls.winPos << " | <" << dist << ", " << m.matchSz << "> | Encoding Details: li: " << lenIdx << ", di: " << distIdx << ", lext: " << lenExtra << ", dext: " << distExtra << std::endl;
 
             //std::cout << "Back: " << (257 + lenIdx) << " " << ((distIdx << 16) & 0xff | (distExtra & 0xffff)) << " " << lenExtra << std::endl;
         }
@@ -1783,6 +1783,9 @@ void _lzr_stream_write(BitStream* stream, lzr* l, u32* checksum, bool writeCapBy
         l->charCounts[256]++;
     HuffmanTreeInfo enc_tree_inf = GenCanonicalTreeInfFromCounts((size_t*)l->charCounts, l->charCountSz, LITERAL_MAX_CODE_LENGTH);
 
+    std::cout << "------------- Encoded Lit Tree ---------------" << std::endl;
+    PrintTree(enc_tree_inf.t);
+
     if (!enc_tree_inf.bitLens)
         return;
 
@@ -2130,6 +2133,9 @@ huffman_node** _decode_trees(BitStream* stream) {
     _tContain[0] = litTree;
     _tContain[1] = distTree;
 
+    std::cout << "------------- Decoded Lit Tree ---------------" << std::endl;
+    PrintTree(litTree);
+
     return _tContain;
 }
 
@@ -2172,13 +2178,19 @@ void _inflate_block_generic(InflateBlock* block, BitStream* stream, huffman_node
             u32 distExtraBits = DistanceExtraBits[distIdx],
                 dist = DistanceBase[distIdx] + stream->readNBits(distExtraBits);
 
+            std::cout << "Match Decode: " << "<" << dist << ", " << len << ">" << std::endl;
+
             //copy character from back ref
+            std::cout << "sym copy: (" << dec_data.size() << ") ";
+            size_t decSz = dec_data.size();
             forrange(len) {
-                const size_t decSz = dec_data.size();
-                if (dist >= decSz)
+                if (dist > decSz)
                     continue;
-                dec_data.push_back(dec_data[decSz - dist]);
+                byte dbg_sym;
+                dec_data.push_back(dbg_sym = dec_data[(decSz++) - dist]);
+                std::cout << (int)dbg_sym << " ";
             }
+            std::cout << std::endl;
         }
     }
 

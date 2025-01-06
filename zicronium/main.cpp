@@ -72,7 +72,7 @@ i32 main() {
 	//TODO: make sure when something goes wrong everything errors out
 	//ie -> rle encode error -> all functions prior error out / return
 	//TODO: find a way to cap the bit length of a character when generating a tree
-	//possible solution: when generating the trees if a bitlength greater than the max is noticed then after
+	//possible solution: when generating the trees if a bitlengths greater than the max is noticed then after
 	//tree generation call a fixer function that basically takes all bitlengths, orders by lengths, and adds to
 	//the longer codes until all bit lengths are uniform and the sum of all bitlengths is the same
 	file testFile = FileWrite::readFromBin("C:\\TestStuff\\wood.wld");
