@@ -41,6 +41,10 @@
 
   make deflate more modular since there are lots of inflate and deflate functions
     -> functions for reading and writing zlib and chunk headerS
+
+ Functions that need optimizing:
+    WriteVBits to stream -> slow for loop and branches
+    lz77_encode -> new operator for each node is really slow
  */
 
 #define BALLOON_DEBUG
@@ -1132,7 +1136,7 @@ _match longest_match(hash_node<_lz_win_ref>* firstMatch, lz_inst* ls, match_sett
 
  //TODO: fix this function in this context
 u32 EncodeSymbol(u32 sym, huffman_node* tree) {
-    assert(sym < tree->alphabetSz);
+    assert(sym < tree->alphaSz);
 
     if (tree->symCodes == nullptr)
         GenerateCodeTable(tree, tree->alphaSz);
@@ -1832,7 +1836,7 @@ i32 WriteDeflateBlockToStream(BitStream* stream, bin* block_data, const size_t w
  * compressed data
  *
  */
-
+#include <chrono>
 balloon_result Balloon::Deflate(byte* data, size_t sz, u32 compressionLevel, const size_t winBits) {
     //quick error check
     if (!data || sz <= 0 || winBits > 15) return {};
@@ -1869,8 +1873,15 @@ balloon_result Balloon::Deflate(byte* data, size_t sz, u32 compressionLevel, con
             .sz = blockSz
         };
 
+        auto start = std::chrono::high_resolution_clock::now();
+
         if (WriteDeflateBlockToStream(&rStream, &block_dat, winBits, compressionLevel, &checksum, bytesLeft - BLOCK_SIZE_MAX <= 0))
             std::cout << "Error something went wrong when writing deflate block!" << std::endl;
+
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+
+        std::cout << "Encode Speed: " << (((double)blockSz / duration.count()) * 1e3) << " kb/s" << std::endl;
 
         std::cout << blockSz << " " << bytesLeft << " " << (bytesLeft - BLOCK_SIZE_MAX <= 0) << " | " << rStream.rPos << " " << rStream.rBit << std::endl;
         
@@ -2217,7 +2228,7 @@ balloon_result Balloon::Inflate(byte* data, size_t sz) {
 
     size_t totalBlockSize = 0;
 
-    std::vector< InflateBlock> blocks;
+    std::vector<InflateBlock> blocks;
 
     while (!eos) {
         InflateBlock c_block = _stream_block_inflate(&datStream);
@@ -2253,7 +2264,7 @@ enum file_stream_type {
     file_stream_out
 };
 
-template<file_stream_type _sty> class BinFileStream {
+/*template<file_stream_type _sty> class BinFileStream {
     std::fstream _f;
     bool iok = false;
 public:
@@ -2312,7 +2323,7 @@ bool DeflateFileToFile(std::string in_src, std::string out_src, u32 compressionL
 
     if (!f_stream.ok())
         return false;
-}
+}*/
 
 //line 861, lets see how off this comment gets
 //line 1231, yeah that comment above is way off rn, but lets so how off this one gets :3

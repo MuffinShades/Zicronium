@@ -33,6 +33,9 @@
     <ClCompile Include="balloon.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="hyper_stream.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="balloon.hpp">
@@ -54,6 +57,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="filewrite.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="hyper_stream.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

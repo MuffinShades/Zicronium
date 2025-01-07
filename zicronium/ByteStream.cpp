@@ -11,13 +11,13 @@ void ByteStream::allocNewChunk()
 
 void ByteStream::allocBytes(size_t sz)
 {
-    if (this->bytes == nullptr || this->len <= 0) {
-        this->allocSz = 1;
-        if (this->bytes != nullptr)
+    if (!this->bytes || this->allocSz <= 0) {
+        this->allocSz = sz;
+        if (this->bytes)
             delete[] this->bytes;
 
-        this->bytes = new byte[1];
-        ZeroMem(this->bytes, 1);
+        this->bytes = new byte[this->allocSz];
+        ZeroMem(this->bytes, this->allocSz);
     }
     if (sz <= 0)
         return;
@@ -67,16 +67,29 @@ unsigned long long ByteStream::readBytesAsVal(size_t nBytes)
     case bmode_BigEndian:
     {
         for (int i = nBytes - 1; i >= 0; i--)
-            res |= (this->readByte() << (i * 8));
+            res |= (this->_readByte() << (i * 8));
         break;
     }
     case bmode_LittleEndian:
     {
         for (int i = 0; i < nBytes; i++)
-            res |= (this->readByte() << (i * 8));
+            res |= (this->_readByte() << (i * 8));
         break;
     }
     }
+    return res;
+}
+
+byte* ByteStream::readBytes(size_t nBytes) {
+    if (nBytes <= 0) return nullptr;
+
+    byte* res = new byte[nBytes];
+    ZeroMem(res, nBytes);
+
+    const size_t byteRead = min(nBytes, this->len - this->readPos);
+    memcpy(res, this->bytes, byteRead);
+    this->readPos += byteRead;
+
     return res;
 }
 
@@ -110,11 +123,18 @@ uint64_t ByteStream::readUInt64()
     return (uint64_t)this->readInt64();
 }
 
-void ByteStream::writeByte(byte b)
-{
+void ByteStream::writeByte(byte b) {
     if (++this->len > this->allocSz)
         this->allocNewChunk();
     this->bytes[this->len - 1] = b;
+    this->byteWriteAdv();
+}
+
+void ByteStream::_writeByte(byte b) {
+    if (++this->len > this->allocSz)
+        this->allocNewChunk();
+    this->bytes[this->len - 1] = b;
+    this->byteWriteAdv();
 }
 
 void ByteStream::writeNBytesAsVal(unsigned long long v, size_t nBytes)
@@ -126,13 +146,13 @@ void ByteStream::writeNBytesAsVal(unsigned long long v, size_t nBytes)
     case bmode_BigEndian:
     {
         for (int i = nBytes - 1; i >= 0; i--)
-            this->writeByte((v >> (i * 8)) & 0xff);
+            this->_writeByte((v >> (i * 8)) & 0xff);
         break;
     }
     case bmode_LittleEndian:
     {
         for (int i = 0; i < nBytes; i++)
-            this->writeByte((v >> (i * 8)) & 0xff);
+            this->_writeByte((v >> (i * 8)) & 0xff);
         break;
     }
     }
@@ -191,6 +211,11 @@ void ByteStream::writeBytes(byte* dat, size_t sz)
     // memcpy
     memcpy(this->bytes + pos, dat, sz);
     this->len = pos + sz;
+
+    if (this->writePos == this->readPos)
+        this->readPos = this->len - 1;
+
+    this->writePos = this->len - 1;
 }
 
 ByteStream::~ByteStream()
@@ -219,7 +244,7 @@ char* ByteStream::readCStr(size_t len) {
     ZeroMem(_by, len);
 
     do {
-        *cur++ = (char)this->readByte();
+        *cur++ = (char)this->_readByte();
     } while (cur != e);
 
     return _by;
@@ -244,6 +269,32 @@ std::string ByteStream::readStr(size_t len) {
         res = res.substr(0, len);
 
     return res;
+}
+
+byte ByteStream::curByte() {
+    return this->bytes[this->tell()];
+}
+
+byte ByteStream::_readByte()
+{
+    if (this->readPos >= this->len) //Note to self, this has broken things ;-;
+        return 0;
+
+    return this->bytes[this->readPos++];
+}
+
+//advances another byte when writing stuff
+void ByteStream::byteWriteAdv() {
+    if (this->readPos == this->writePos++)
+        this->readPos = this->writePos;
+
+    if (this->writePos >= this->len)
+        if (++this->len >= this->allocSz)
+            this->allocNewChunk();
+}
+
+void ByteStream::catchUp() {
+    this->readPos = this->writePos;
 }
 
 //welp

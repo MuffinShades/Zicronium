@@ -2,14 +2,7 @@
 #include <iostream>
 #include <cstring>
 #include <cmath>
-#include "balloon.hpp"
 #include "msutil.hpp"
-
-#ifndef min
-#define min(a, b) ((a) < (b) ? (a) : (b))
-#endif
-
-#define MSFL_EXP
 
 enum ByteStreamMode {
 	bmode_LittleEndian,
@@ -17,11 +10,11 @@ enum ByteStreamMode {
 };
 
 class ByteStream {
-private:
+protected:
 	byte* bytes = nullptr;
 	size_t len = 0;
 	size_t allocSz = 0;
-	size_t readPos = 0;
+	size_t readPos = 0, writePos = 0;
 	size_t chunkSz = 0xfff;
 public:
 	int mode = bmode_BigEndian;
@@ -29,25 +22,41 @@ public:
 	void allocBytes(size_t sz);
 	ByteStream(byte* dat, size_t sz);
 	ByteStream();
-	byte readByte();
 	size_t seek(size_t pos);
-	unsigned long long readBytesAsVal(size_t nBytes);
-	short readInt16();
-	unsigned short readUInt16();
-	int readInt32();
-	unsigned int readUInt32();
-	int64_t readInt64();
-	uint64_t readUInt64();
-	void writeByte(byte b);
-	void writeNBytesAsVal(unsigned long long v, size_t nBytes);
-	void writeInt16(short v);
-	void writeUInt16(unsigned short v);
-	void writeInt32(int v);
-	void writeUInt32(unsigned int v);
-	void writeInt64(int64_t v);
-	void writeUInt64(uint64_t v);
+
+	//read functions
+	virtual byte readByte();
+	virtual unsigned long long readBytesAsVal(size_t nBytes);
+	virtual short readInt16();
+	virtual unsigned short readUInt16();
+	virtual int readInt32();
+	virtual unsigned int readUInt32();
+	virtual int64_t readInt64();
+	virtual uint64_t readUInt64();
+	virtual byte* readBytes(size_t nBytes);
+
+	byte curByte();
+	byte _readByte();
+	void _writeByte(byte b);
+
+	//write functions
+	virtual void writeByte(byte b);
+	virtual void writeNBytesAsVal(unsigned long long v, size_t nBytes);
+	virtual void writeInt16(short v);
+	virtual void writeUInt16(unsigned short v);
+	virtual void writeInt32(int v);
+	virtual void writeUInt32(unsigned int v);
+	virtual void writeInt64(int64_t v);
+	virtual void writeUInt64(uint64_t v);
+	virtual void writeBytes(byte* dat, size_t sz);
+
+	//
+	void catchUp();
+	void byteWriteAdv();
+
+
 	void clip();
-	void writeBytes(byte* dat, size_t sz);
+
 	void free() {
 		if (this->bytes != nullptr) delete[] this->bytes;
 		this->bytes = nullptr;
@@ -61,10 +70,10 @@ public:
 	};
 	byte* getBytePtr() {
 		return this->bytes;
-	}
+	};
 	size_t tell() {
 		return this->readPos;
-	}
+	};
 	size_t skipBytes(size_t nBytes);
 	char* readCStr(size_t len);
 	std::string readStr(size_t len);
